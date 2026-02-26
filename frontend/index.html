@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LexiLens UI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div class="main-layout">
+      <!-- Camera Card -->
+      <div class="camera-card">
+        <div class="camera-inner">
+          <video id="video" autoplay muted></video>
+          <div class="camera-overlay">
+            <button id="mic-btn" class="btn mic-btn">🎙 Mic</button>
+            <button id="snapshot-btn" class="btn">📸 Snapshot</button>
+            <button id="upload-btn" class="btn">📄 Upload</button>
+            <input type="file" id="file-input" style="display:none" multiple>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel -->
+      <div class="right-panel">
+        <!-- Text Display Area -->
+        <div class="text-display">
+          <div class="panel-title">Text Display Area</div>
+          <div id="reading-text">
+            <p>The recognized text will appear here.</p>
+          </div>
+        </div>
+
+        <!-- Chat Log Area -->
+        <div class="chat-history">
+          <div class="panel-title">Chat Log Area</div>
+          <div id="chat-history">
+            <div class="chat-message ai">Lexi: Hello! I am ready to read for you.</div>
+          </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="control-bar">
+          <button id="explain-btn" class="btn-outline">Explain Simply</button>
+          <button id="stop-btn" class="btn-outline">Stop Reading</button>
+          <button id="font-increase" class="btn-outline">A+</button>
+          <button id="font-decrease" class="btn-outline">A-</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
