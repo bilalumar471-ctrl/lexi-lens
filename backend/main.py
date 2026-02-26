@@ -15,8 +15,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.config import get_settings, setup_logging
-from backend.agent.lexi import LexiAgent
+from config import get_settings, setup_logging
+from agent.lexi import LexiAgent
 
 logger = logging.getLogger(__name__)
 

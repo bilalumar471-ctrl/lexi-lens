@@ -14,7 +14,7 @@ from typing import AsyncGenerator
 from google import genai
 from google.genai import types
 
-from backend.config import get_settings
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
