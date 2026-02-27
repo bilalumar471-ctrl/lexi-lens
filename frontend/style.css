@@ -1,4 +1,4 @@
-/* Reset & Base */
+/* ================= RESET & BASE ================= */
 body {
   margin: 0;
   font-family: 'Inter', sans-serif;
@@ -6,7 +6,7 @@ body {
   color: #1f2933;
 }
 
-/* Main Layout */
+/* ================= MAIN LAYOUT ================= */
 .main-layout {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
@@ -14,9 +14,10 @@ body {
   padding: 20px;
   height: 100vh;
   box-sizing: border-box;
+  overflow: hidden; /* 防止内容撑开 */
 }
 
-/* ===== Camera Card ===== */
+/* ================= CAMERA CARD ================= */
 .camera-card {
   position: relative;
   display: flex;
@@ -24,7 +25,6 @@ body {
   align-items: center;
 }
 
-/* Inner black semi-transparent box */
 .camera-inner {
   background: rgba(0,0,0,0.55);
   border-radius: 24px;
@@ -38,7 +38,6 @@ body {
   box-shadow: 0 12px 36px rgba(0,0,0,0.3);
 }
 
-/* Video inside inner box */
 #video {
   width: 100%;
   height: 100%;
@@ -46,7 +45,7 @@ body {
   border-radius: 20px;
 }
 
-/* Overlay Buttons */
+/* ================= OVERLAY BUTTONS ================= */
 .camera-overlay {
   position: absolute;
   bottom: 15px;
@@ -56,40 +55,71 @@ body {
 }
 
 .btn {
-  padding: 10px 14px;
-  border-radius: 16px;
-  border: none;
-  font-size: 14px;
+  min-height: 48px;
+  padding: 12px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.25);
   cursor: pointer;
-  background: #5b4fff;
-  color: #fff;
-  transition: 0.2s;
-}
-.btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
-}
-.mic-btn {
-  background: #8b5cf6;
+  font-size: 16px;
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  transition: all 0.25s ease;
 }
 
-/* ===== Right Panel ===== */
+.btn:hover {
+  transform: translateY(-3px);
+  background: rgba(255,255,255,0.25);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.35);
+}
+
+.mic.mic-btn {
+  background: rgba(17,122,101,0.6);
+  border: 1px solid rgba(255,255,255,0.25);
+  position: relative;
+  overflow: hidden; /* 容器限制波纹 */
+}
+
+.mic-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 10%;
+  width: 6px;
+  height: 6px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  animation: pulse 1s infinite;
+  opacity: 0;
+}
+
+@keyframes pulse {
+  0% { transform: translateX(-50%) scaleY(1); opacity: 0.3; }
+  50% { transform: translateX(-50%) scaleY(2.5); opacity: 0.8; }
+  100% { transform: translateX(-50%) scaleY(1); opacity: 0.3; }
+}
+
+/* ================= RIGHT PANEL ================= */
 .right-panel {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
+  min-height: 0; /* 防止撑开 */
+  padding-top: 0; /* ✅ 新增，让标题和上方有空隙 */
+
 }
 
-/* Panel Titles */
 .panel-title {
   font-weight: bold;
   font-size: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
-/* Text Display */
 .text-display {
-  background: #fff7e6; /* 浅黄色 */
+  background: #fff7e6;
   border-radius: 16px;
   padding: 20px;
   font-size: 18px;
@@ -100,72 +130,101 @@ body {
   flex-direction: column;
   overflow-y: auto;
 }
-
-/* Chat History */
+/* ================= CHAT HISTORY ================= */
 .chat-history {
   background: #ffffff;
   border-radius: 16px;
-  padding: 15px;
+  padding: 15px 6px 15px 15px;
+  display: flex;             /* ✅ 新增 flex */
+  flex-direction: column;    /* ✅ 垂直排列标题+消息区 */
   flex: 1;
+  min-height: 0;             /* ✅ 必须，否则 flex 子元素无法收缩 */
+  overflow: hidden;          /* ✅ 防止内容超出 */
+}
+
+.chat-scroll {
+  flex: 1;                   /* 占满剩余空间 */
   overflow-y: auto;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  scroll-behavior: smooth;
 }
 
-/* Chat Messages with tail */
+/* ================= CHAT MESSAGES BASE ================= */
 .chat-message {
-  position: relative;
-  margin-bottom: 10px;
-  padding: 12px 16px;
-  border-radius: 16px;
-  max-width: 75%;
-  word-wrap: break-word;
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 58%;
   font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  animation: fadeIn 0.25s ease;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin: 0;   /* 保持0，让gap控制间距 */
 }
 
-/* AI Bubble */
+/* ================= AI BUBBLE (左) ================= */
 .chat-message.ai {
-  background: #d8b4fe; /* 浅紫 */
-  color: #1f2933;
   align-self: flex-start;
-}
-.chat-message.ai::after {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 12px;
-  width: 0;
-  height: 0;
-  border-top: 8px solid transparent;
-  border-bottom: 8px solid transparent;
-  border-right: 8px solid #d8b4fe;
+  margin-right: auto;
+  background: linear-gradient(135deg, #d8b4fe 0%, #f3e8ff 100%);
+  color: #1f2933;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.3),  
+    0 3px 10px rgba(0,0,0,0.1);  
+    backdrop-filter: blur(4px); /* 毛玻璃轻微效果 */
+
 }
 
-/* User Bubble */
+/* ================= USER BUBBLE (右) ================= */
 .chat-message.user {
-  background: #4b5563; /* 深灰 */
-  color: #f9fafb;
   align-self: flex-end;
-}
-.chat-message.user::after {
-  content: '';
-  position: absolute;
-  right: -8px;
-  top: 12px;
-  width: 0;
-  height: 0;
-  border-top: 8px solid transparent;
-  border-bottom: 8px solid transparent;
-  border-left: 8px solid #4b5563;
+  margin-left: auto;
+  background: rgba(75,85,99,0.2);             
+  color: #1f2933;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    0 3px 10px rgba(0,0,0,0.1);
 }
 
-/* Control Bar Buttons */
+/* ================= HOVER EFFECT ================= */
+.chat-message:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* ================= FADE-IN ANIMATION ================= */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ================= SCROLLBAR ================= */
+.chat-history::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-history::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+
+
+/* ================= ACTIVE WORD HIGHLIGHT ================= */
+.active-word {
+  background: #ffd54f;
+  border-radius: 4px;
+}
+
+/* ================= CONTROL BAR ================= */
 .control-bar {
   display: flex;
   gap: 10px;
 }
+
 .btn-outline {
   padding: 8px 12px;
   border-radius: 12px;
@@ -176,17 +235,44 @@ body {
   font-size: 14px;
   transition: 0.2s;
 }
+
 .btn-outline:hover {
   background: #f3f4f6;
 }
 
-/* Scrollbars */
+/* ================= SCROLLBARS ================= */
 .text-display::-webkit-scrollbar,
 .chat-history::-webkit-scrollbar {
   width: 8px;
 }
+
 .text-display::-webkit-scrollbar-thumb,
-.chat-history::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
-  border-radius: 4px;
+
+.mode-wrapper {
+  position: relative;
 }
+
+.mode-dropdown {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(12px);
+  border-radius: 14px;
+  padding: 8px 0;
+  display: none;
+  flex-direction: column;
+  min-width: 140px;
+}
+
+.mode-dropdown div {
+  padding: 10px 16px;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.mode-dropdown div:hover {
+  background: rgba(255,255,255,0.15);
+}
+
