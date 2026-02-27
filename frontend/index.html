@@ -19,7 +19,10 @@ style-src 'self' 'unsafe-inline';">
       <!-- Camera Card -->
       <div class="camera-card">
         <div class="camera-inner">
-      
+          <!-- 视频右上角缩略图 -->
+          <div id="snapshot-thumb">
+            <img id="snapshot-img" src="" alt="Snapshot Thumbnail">
+          </div>
           <video id="video" autoplay muted></video>
           <div class="camera-overlay">
             <button id="mic-btn" class="btn mic-btn">🎙 Mic</button>
@@ -52,7 +55,7 @@ style-src 'self' 'unsafe-inline';">
         <!-- Chat Log Area -->
         <div class="chat-history">
           <div class="panel-title">Chat Log Area</div>
-          <div class="chat-scroll" id="chat-history">
+          <div class="chat-scroll" id="chat-scroll">
             <div class="chat-message ai">Lexi: Hello! I am ready to read for you.</div>
           </div>
         </div>
