@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LexiLens UI</title>
+  <meta http-equiv="Content-Security-Policy" 
+content="default-src 'self';
+img-src 'self' blob: data:;
+media-src 'self' blob:;
+connect-src 'self' ws://localhost:8080 http://localhost:8080;
+script-src 'self';
+style-src 'self' 'unsafe-inline';">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,11 +19,21 @@
       <!-- Camera Card -->
       <div class="camera-card">
         <div class="camera-inner">
+      
           <video id="video" autoplay muted></video>
           <div class="camera-overlay">
             <button id="mic-btn" class="btn mic-btn">🎙 Mic</button>
             <button id="snapshot-btn" class="btn">📸 Snapshot</button>
             <button id="upload-btn" class="btn">📄 Upload</button>
+            <div class="mode-wrapper">
+              <button id="mode-toggle" class="btn">⚙ Mode</button>
+              <div class="mode-dropdown" id="mode-dropdown">
+                <div data-mode="book">Book</div>
+                <div data-mode="form">Form</div>
+                <div data-mode="study">Study</div>
+                <div data-mode="write">Write</div>
+              </div>
+            </div>
             <input type="file" id="file-input" style="display:none" multiple>
           </div>
         </div>
@@ -35,7 +52,7 @@
         <!-- Chat Log Area -->
         <div class="chat-history">
           <div class="panel-title">Chat Log Area</div>
-          <div id="chat-history">
+          <div class="chat-scroll" id="chat-history">
             <div class="chat-message ai">Lexi: Hello! I am ready to read for you.</div>
           </div>
         </div>
@@ -43,6 +60,7 @@
         <!-- Control Buttons -->
         <div class="control-bar">
           <button id="explain-btn" class="btn-outline">Explain Simply</button>
+          <button id="test-voice-btn" class="btn-outline">🔊 Test Voice</button>
           <button id="stop-btn" class="btn-outline">Stop Reading</button>
           <button id="font-increase" class="btn-outline">A+</button>
           <button id="font-decrease" class="btn-outline">A-</button>
