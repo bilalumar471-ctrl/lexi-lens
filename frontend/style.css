@@ -75,11 +75,13 @@ body {
   box-shadow: 0 12px 28px rgba(0,0,0,0.35);
 }
 
-.mic.mic-btn {
+.mic-btn {
   background: rgba(17,122,101,0.6);
   border: 1px solid rgba(255,255,255,0.25);
   position: relative;
   overflow: hidden; /* 容器限制波纹 */
+    transition: transform 0.2s ease; /* 平滑缩放 */
+
 }
 
 .mic-btn::after {
@@ -223,6 +225,8 @@ body {
 .control-bar {
   display: flex;
   gap: 10px;
+    margin-top: auto; /* 保证右侧面板少内容时贴底 */
+
 }
 
 .btn-outline {
@@ -241,7 +245,10 @@ body {
 }
 
 /* ================= SCROLLBARS ================= */
-.text-display::-webkit-scrollbar,
+.text-display::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
 .chat-history::-webkit-scrollbar {
   width: 8px;
 }
@@ -276,3 +283,22 @@ body {
   background: rgba(255,255,255,0.15);
 }
 
+/* ===== Snapshot 缩略图 ===== */
+#snapshot-thumb {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 230px;
+  height: 170px;
+  border: 1px solid #ccc;
+  overflow: hidden;
+  display: none;  /* 默认隐藏 */
+  z-index: 100;   /* 保证在视频上方 */
+  border-radius: 8px;
+}
+
+#snapshot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
