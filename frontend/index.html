@@ -14,6 +14,18 @@ style-src 'self' 'unsafe-inline';">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Privacy Modal -->
+<div id="privacy-modal" class="modal">
+  <div class="modal-content">
+    <h2>Privacy Notice</h2>
+    <p>
+      This app uses your camera and microphone for real-time reading assistance.
+      Your session data is not permanently stored.
+    </p>
+    <button id="consent-btn" class="btn">I Agree</button>
+  </div>
+</div>
+  <div id="inline-error" class="inline-error"></div>
   <div id="app">
     <div class="main-layout">
       <!-- Camera Card -->
