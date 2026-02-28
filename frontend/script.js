@@ -2,6 +2,15 @@ const CONFIG = {
   WS_URL: "ws://localhost:8080/ws/session",
   API_URL: "http://localhost:8080"
 };
+const SESSION_TOKEN = crypto.randomUUID();
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp'
+];
+
+const MAX_SIZE = 10 * 1024 * 1024;
 
 let isRecording = false;
 let mediaRecorder = null;
@@ -9,10 +18,19 @@ let videoStream = null;
 let ws = null;
 
 window.addEventListener("DOMContentLoaded", () => {
-  initCamera();
   setupEvents();
-  initWebSocket();
+
+  if (!sessionStorage.getItem("privacy_consented")) {
+    document.getElementById("privacy-modal").style.display = "flex";
+  } else {
+    initSession();
+  }
 });
+
+function initSession() {
+  initCamera();
+  initWebSocket();
+}
 
 async function initCamera() {
   try {
@@ -22,7 +40,15 @@ async function initCamera() {
     console.error("Camera error:", err);
   }
 }
+function sendMessage(type, payload = {}) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
+  ws.send(JSON.stringify({
+    type,
+    session_token: SESSION_TOKEN,
+    ...payload
+  }));
+}
 function setupEvents() {
   document.getElementById("mic-btn").addEventListener("click", toggleMic);
   document.getElementById("snapshot-btn").addEventListener("click", takeSnapshot);
@@ -32,6 +58,11 @@ function setupEvents() {
   document.getElementById("mode-toggle").addEventListener("click", () => {
   const menu = document.getElementById("mode-dropdown");
   menu.style.display = menu.style.display === "flex" ? "none" : "flex";
+});
+  document.getElementById("consent-btn")?.addEventListener("click", () => {
+  sessionStorage.setItem("privacy_consented", "true");
+  document.getElementById("privacy-modal").style.display = "none";
+  initSession();
 });
   document.getElementById("test-voice-btn")?.addEventListener("click", testVoice);
   document.getElementById("file-input").addEventListener("change", handleUpload);
@@ -46,10 +77,7 @@ function setupEvents() {
   document.getElementById("mode-dropdown").style.display = "none";
 
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: "mode",
-      mode: mode
-    }));
+    sendMessage("mode", { mode });
   }
 
   renderMockTextForMode(mode);
@@ -57,6 +85,20 @@ function setupEvents() {
   document.getElementById("font-decrease")?.addEventListener("click", decreaseFont);
 }
 let audioContext, analyser, dataArray;
+function validateFile(file) {
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    showInlineError("Only PDF, PNG, JPG, WEBP allowed.");
+    return false;
+  }
+
+  if (file.size > MAX_SIZE) {
+    showInlineError("File too large (max 10MB).");
+    return false;
+  }
+
+  return true;
+}
+
 
 async function toggleMic() {
       let btn = document.getElementById("mic-btn"); // ✅ 必须先拿到元素
@@ -130,8 +172,15 @@ function takeSnapshot() {
 
 function handleUpload(event) {
   const files = event.target.files;
+
   for (let f of files) {
+
+    // 🔐 先验证
+    if (!validateFile(f)) return;
+
     addChat(`Uploaded: ${f.name}`, "user");
+
+    // 以后这里再加 fetch 上传
   }
 }
 
@@ -224,6 +273,9 @@ function renderMockTextForMode(mode) {
 }
 function highlightLoop() {
   const spans = document.querySelectorAll("#reading-text span");
+
+  if (spans.length === 0) return;   // ✅ 先检查
+
   spans.forEach(s => s.classList.remove("active-word"));
 
   if (spans[currentWord]) {
@@ -238,32 +290,36 @@ function highlightWord(index) {
 
   if (spans[index]) {
     spans[index].classList.add("active-word");
+    spans[index].scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
   }
+}
+function showInlineError(message) {
+  const el = document.getElementById("inline-error");
+  el.textContent = message;
+  el.style.display = "block";
+
+  setTimeout(() => {
+    el.style.display = "none";
+  }, 3000);
 }
 function initWebSocket() {
   ws = new WebSocket(CONFIG.WS_URL);
 
   ws.onopen = () => {
     console.log("WebSocket connected");
+    addChat("WebSocket connected.", "ai");
   };
 
   ws.onmessage = (event) => {
     const data = event.data;
-
     try {
       const parsed = JSON.parse(data);
-
-      if (parsed.type === "text") {
-        addChat(parsed.message, "ai");
-      }
-
-      if (parsed.type === "highlight") {
-        highlightWord(parsed.index);
-      }
-      if (parsed.type === "mode") {
-  renderMockTextForMode(parsed.mode);
-}
-
+      if (parsed.type === "text") addChat(parsed.message, "ai");
+      if (parsed.type === "highlight") highlightWord(parsed.index);
+      if (parsed.type === "mode") renderMockTextForMode(parsed.mode);
     } catch {
       console.log("Non-JSON message:", data);
     }
@@ -274,9 +330,10 @@ function initWebSocket() {
   };
 
   ws.onclose = () => {
-    console.log("WebSocket closed");
+    console.log("WebSocket closed, retrying in 2s...");
+    addChat("WebSocket disconnected. Reconnecting...", "ai");
+    setTimeout(initWebSocket, 2000); // 2 秒后重连
   };
 }
-
 setInterval(highlightLoop, 800);
 renderMockText();
