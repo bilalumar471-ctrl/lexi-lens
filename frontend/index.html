@@ -25,35 +25,55 @@ style-src 'self' 'unsafe-inline';">
     <button id="consent-btn" class="btn">I Agree</button>
   </div>
 </div>
-  <div id="inline-error" class="inline-error"></div>
-  <div id="app">
-    <div class="main-layout">
+<div id="app" class="theme-nano">
+  <div class="main-layout">
       <!-- Camera Card -->
-      <div class="camera-card">
-        <div class="camera-inner">
-          <!-- 视频右上角缩略图 -->
-          <div id="snapshot-thumb">
-            <img id="snapshot-img" src="" alt="Snapshot Thumbnail">
-          </div>
-          <video id="video" autoplay muted></video>
-          <div class="camera-overlay">
-            <button id="mic-btn" class="btn mic-btn">🎙 Mic</button>
-            <button id="snapshot-btn" class="btn">📸 Snapshot</button>
-            <button id="upload-btn" class="btn">📄 Upload</button>
-            <div class="mode-wrapper">
-              <button id="mode-toggle" class="btn">⚙ Mode</button>
-              <div class="mode-dropdown" id="mode-dropdown">
-                <div data-mode="book">Book</div>
-                <div data-mode="form">Form</div>
-                <div data-mode="study">Study</div>
-                <div data-mode="write">Write</div>
-              </div>
+<div class="camera-card card accent-border">
+  <div class="camera-inner">
+
+    <!-- 内框：上半是视频，下半是控制条 -->
+    <div class="camera-frame">
+
+      <!-- 上半：视频区域（可含右上角缩略图与错误提示） -->
+      <div class="camera-feed">
+
+        <!-- 摄像区域错误提示 -->
+        <div id="inline-error" class="inline-error"></div>
+
+        <!-- 视频右上角缩略图 -->
+        <div id="snapshot-thumb" class="snapshot-thumb">
+          <img id="snapshot-img" src="" alt="Snapshot Thumbnail">
+        </div>
+
+        <video id="video" autoplay muted></video>
+      </div>
+
+      <!-- 下半：按钮区（不覆盖视频） -->
+      <div class="camera-controls">
+        <div class="controls-left">
+          <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
+          <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
+          <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
+          <input type="file" id="file-input" style="display:none" multiple>
+        </div>
+
+        <div class="controls-right">
+          <div class="mode-wrapper">
+            <button id="mode-toggle" class="btn">⚙ Mode</button>
+            <div class="mode-dropdown" id="mode-dropdown">
+              <div data-mode="book">Book</div>
+              <div data-mode="form">Form</div>
+              <div data-mode="study">Study</div>
+              <div data-mode="write">Write</div>
             </div>
-            <input type="file" id="file-input" style="display:none" multiple>
           </div>
         </div>
       </div>
 
+    </div><!-- /.camera-frame -->
+
+  </div>
+</div>
       <!-- Right Panel -->
       <div class="right-panel">
         <!-- Text Display Area -->
@@ -65,16 +85,17 @@ style-src 'self' 'unsafe-inline';">
         </div>
 
         <!-- Chat Log Area -->
-        <div class="chat-history">
-          <div class="panel-title">Chat Log Area</div>
+         <div class="chat-history card">
+          <div class="panel-title">Chat Log</div>
+
           <div class="chat-scroll" id="chat-scroll">
             <div class="chat-message ai">Lexi: Hello! I am ready to read for you.</div>
           </div>
         </div>
 
         <!-- Control Buttons -->
-        <div class="control-bar">
-          <button id="explain-btn" class="btn-outline">Explain Simply</button>
+<div class="control-bar toolbar card">
+  <button id="explain-btn" class="btn-outline">Explain Simply</button>
           <button id="test-voice-btn" class="btn-outline">🔊 Test Voice</button>
           <button id="stop-btn" class="btn-outline">Stop Reading</button>
           <button id="font-increase" class="btn-outline">A+</button>
