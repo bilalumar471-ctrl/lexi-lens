@@ -12,6 +12,8 @@ import logging
 import os
 from functools import lru_cache
 
+from dotenv import load_dotenv
+load_dotenv()
 from pydantic_settings import BaseSettings
 
 
@@ -25,8 +27,9 @@ class Settings(BaseSettings):
     PROJECT_ID: str = os.getenv("PROJECT_ID", "lexi-lens")
     ENV: str = os.getenv("ENV", "development")
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
-    GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
+    GEMINI_MODEL: str = "gemini-2.0-flash-exp"
     LOG_LEVEL: str = "INFO"
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     class Config:
         env_file = ".env"

@@ -44,31 +44,16 @@ RULES — follow every single one:
 # ---------------------------------------------------------------------------
 
 class LexiAgent:
-    """
-    Real-time audio agent powered by Gemini 2.0 Flash Live API.
-
-    Usage::
-
-        agent = LexiAgent()
-        await agent.connect()
-        await agent.send_audio(pcm_bytes)
-        async for chunk in agent.receive_audio():
-            play(chunk)
-        await agent.close()
-    """
-
     def __init__(self) -> None:
         self._settings = get_settings()
         self._client: genai.Client | None = None
-        self._session: genai.live.AsyncSession | None = None
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+        self._session = None
+        self._session_cm = None
 
     async def connect(self) -> None:
         """Open a Gemini Live API session with Lexi's persona."""
         self._client = genai.Client(
+            api_key=self._settings.GEMINI_API_KEY,
             http_options=types.HttpOptions(api_version="v1beta"),
         )
 
@@ -80,16 +65,17 @@ class LexiAgent:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Kore",  # warm, friendly female voice
+                        voice_name="Kore",
                     ),
                 ),
             ),
         )
 
-        self._session = await self._client.aio.live.connect(
+        self._session_cm = self._client.aio.live.connect(
             model=self._settings.GEMINI_MODEL,
             config=config,
         )
+        self._session = await self._session_cm.__aenter__()
 
         logger.info("Lexi Live session connected (model=%s)", self._settings.GEMINI_MODEL)
 
@@ -97,25 +83,15 @@ class LexiAgent:
         """Tear down the Live API session gracefully."""
         if self._session:
             try:
-                await self._session.close()
+                await self._session_cm.__aexit__(None, None, None)
             except Exception:
                 logger.warning("Error closing Lexi session", exc_info=True)
             finally:
                 self._session = None
+                self._session_cm = None
                 logger.info("Lexi Live session closed")
 
-    # ------------------------------------------------------------------
-    # Audio I/O
-    # ------------------------------------------------------------------
-
     async def send_audio(self, chunk: bytes) -> None:
-        """
-        Stream a raw PCM16 audio chunk (16 kHz, mono) to the model.
-
-        The Live API handles server-side VAD, so barge-in works
-        automatically — sending new audio while the model is
-        speaking will interrupt it.
-        """
         if not self._session:
             raise RuntimeError("LexiAgent is not connected. Call connect() first.")
 
@@ -124,12 +100,6 @@ class LexiAgent:
         )
 
     async def receive_audio(self) -> AsyncGenerator[bytes, None]:
-        """
-        Async generator that yields audio response chunks from the model.
-
-        Each chunk is raw PCM audio (24 kHz) that can be played directly
-        on the client.
-        """
         if not self._session:
             raise RuntimeError("LexiAgent is not connected. Call connect() first.")
 
@@ -141,7 +111,6 @@ class LexiAgent:
                             if part.inline_data and part.inline_data.data:
                                 yield part.inline_data.data
 
-                        # If the model signals turn is complete, keep listening
                         if response.server_content.turn_complete:
                             continue
 
