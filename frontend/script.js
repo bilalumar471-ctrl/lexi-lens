@@ -20,11 +20,11 @@ let ws = null;
 window.addEventListener("DOMContentLoaded", () => {
   setupEvents();
 
-  if (!sessionStorage.getItem("privacy_consented")) {
-    document.getElementById("privacy-modal").style.display = "flex";
-  } else {
-    initSession();
-  }
+ if (!sessionStorage.getItem("privacy_consented")) {
+  document.getElementById("privacy-modal").classList.add("show");
+} else {
+  initSession();
+}
 });
 
 function initSession() {
@@ -34,8 +34,14 @@ function initSession() {
 
 async function initCamera() {
   try {
-    videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    document.getElementById("video").srcObject = videoStream;
+videoStream = await navigator.mediaDevices.getUserMedia({
+  video: {
+    facingMode: "user",     // 或 "environment"
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    aspectRatio: 16/9
+  }
+});    document.getElementById("video").srcObject = videoStream;
   } catch (err) {
     console.error("Camera error:", err);
   }
@@ -61,8 +67,11 @@ function setupEvents() {
 });
   document.getElementById("consent-btn")?.addEventListener("click", () => {
   sessionStorage.setItem("privacy_consented", "true");
-  document.getElementById("privacy-modal").style.display = "none";
-  initSession();
+
+  const modal = document.getElementById("privacy-modal");
+  modal.classList.remove("show");   // ✅ 关键：关闭弹窗
+
+  initSession();                    // ✅ 再启动 camera + websocket
 });
   document.getElementById("test-voice-btn")?.addEventListener("click", testVoice);
   document.getElementById("file-input").addEventListener("change", handleUpload);
@@ -88,11 +97,13 @@ let audioContext, analyser, dataArray;
 function validateFile(file) {
   if (!ALLOWED_TYPES.includes(file.type)) {
     showInlineError("Only PDF, PNG, JPG, WEBP allowed.");
+    addChat("Invalid file type.", "ai");   // ✅ 加这一行
     return false;
   }
 
   if (file.size > MAX_SIZE) {
     showInlineError("File too large (max 10MB).");
+    addChat("File too large.", "ai");      // ✅ 加这一行
     return false;
   }
 
@@ -101,43 +112,62 @@ function validateFile(file) {
 
 
 async function toggleMic() {
-      let btn = document.getElementById("mic-btn"); // ✅ 必须先拿到元素
+  let btn = document.getElementById("mic-btn");
+
   if (!isRecording) {
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
 
-    // 新增：音量分析
     audioContext = new AudioContext();
     const source = audioContext.createMediaStreamSource(stream);
+
     analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.8;
+
     source.connect(analyser);
+
     dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-    function updateMicAnimation() {
-      analyser.getByteTimeDomainData(dataArray);
-     let sum = 0;
-for (let i = 0; i < dataArray.length; i++) sum += (dataArray[i]-128)**2;
-let rms = Math.sqrt(sum / dataArray.length) / 128;
-btn.style.transform = `scale(${1 + rms * 0.6})`;
-      if (isRecording) requestAnimationFrame(updateMicAnimation);
-      else btn.style.transform = `scale(${1 + rms * 0.6})`;
-    }
-    updateMicAnimation();
+    isRecording = true;
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(event.data);
-    };
+    function updateMicAnimation() {
+      analyser.getByteFrequencyData(dataArray);
+
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+
+      let avg = sum / dataArray.length;
+      let normalized = avg / 255;
+
+      if (normalized < 0.05) {
+        btn.style.transform = "scale(1)";
+      } else {
+        btn.style.transform = `scale(${1 + normalized * 0.9})`;
+      }
+
+      if (isRecording) {
+        requestAnimationFrame(updateMicAnimation);
+      } else {
+        btn.style.transform = "scale(1)";
+      }
+    }
+
+    updateMicAnimation();   // ⭐⭐⭐ 关键：启动动画循环
 
     mediaRecorder.start(500);
-    isRecording = true;
     addChat("Listening...", "user");
 
   } else {
+
     mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
     audioContext.close();
     isRecording = false;
-    document.getElementById("mic-btn").style.transform = "scale(1)";
+    btn.style.transform = "scale(1)";
   }
 }
 function testVoice() {
