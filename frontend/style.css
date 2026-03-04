@@ -1,339 +1,447 @@
-const CONFIG = {
-  WS_URL: "ws://localhost:8080/ws/session",
-  API_URL: "http://localhost:8080"
-};
-const SESSION_TOKEN = crypto.randomUUID();
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-  'image/webp'
-];
+:root {
+  --bg: #F8F9FB;
+  --panel: #FFFFFF;
+  --text-strong: #1f2933;
+  --text-subtle: #6B7280;
+  --border: #E5E7EB;
 
-const MAX_SIZE = 10 * 1024 * 1024;
+  --g1: #A98CFF; /* 紫 */
+  --g2: #6EA8FF; /* 蓝 */
 
-let isRecording = false;
-let mediaRecorder = null;
-let videoStream = null;
-let ws = null;
-
-window.addEventListener("DOMContentLoaded", () => {
-  setupEvents();
-
-  if (!sessionStorage.getItem("privacy_consented")) {
-    document.getElementById("privacy-modal").style.display = "flex";
-  } else {
-    initSession();
-  }
-});
-
-function initSession() {
-  initCamera();
-  initWebSocket();
-}
-
-async function initCamera() {
-  try {
-    videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    document.getElementById("video").srcObject = videoStream;
-  } catch (err) {
-    console.error("Camera error:", err);
-  }
-}
-function sendMessage(type, payload = {}) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-  ws.send(JSON.stringify({
-    type,
-    session_token: SESSION_TOKEN,
-    ...payload
-  }));
-}
-function setupEvents() {
-  document.getElementById("mic-btn").addEventListener("click", toggleMic);
-  document.getElementById("snapshot-btn").addEventListener("click", takeSnapshot);
-  document.getElementById("upload-btn").addEventListener("click", () =>
-    document.getElementById("file-input").click()
-  );
-  document.getElementById("mode-toggle").addEventListener("click", () => {
-  const menu = document.getElementById("mode-dropdown");
-  menu.style.display = menu.style.display === "flex" ? "none" : "flex";
-});
-  document.getElementById("consent-btn")?.addEventListener("click", () => {
-  sessionStorage.setItem("privacy_consented", "true");
-  document.getElementById("privacy-modal").style.display = "none";
-  initSession();
-});
-  document.getElementById("test-voice-btn")?.addEventListener("click", testVoice);
-  document.getElementById("file-input").addEventListener("change", handleUpload);
-  document.getElementById("mock-btn")?.addEventListener("click", playMock);
-  document.getElementById("stop-btn")?.addEventListener("click", stopSpeech);
-  document.getElementById("explain-btn")?.addEventListener("click", explainSimply);
-  document.getElementById("font-increase")?.addEventListener("click", increaseFont);
-  document.getElementById("mode-dropdown").addEventListener("click", (e) => {
-  const mode = e.target.dataset.mode;
-  if (!mode) return;
-
-  document.getElementById("mode-dropdown").style.display = "none";
-
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    sendMessage("mode", { mode });
-  }
-
-  renderMockTextForMode(mode);
-});
-  document.getElementById("font-decrease")?.addEventListener("click", decreaseFont);
-}
-let audioContext, analyser, dataArray;
-function validateFile(file) {
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    showInlineError("Only PDF, PNG, JPG, WEBP allowed.");
-    return false;
-  }
-
-  if (file.size > MAX_SIZE) {
-    showInlineError("File too large (max 10MB).");
-    return false;
-  }
-
-  return true;
+  --radius-lg: 20px;
+  --shadow-1: 0 2px 6px rgba(0,0,0,0.06);
+  --shadow-2: 0 10px 20px rgba(17, 24, 39, 0.06);
 }
 
 
-async function toggleMic() {
-      let btn = document.getElementById("mic-btn"); // ✅ 必须先拿到元素
-  if (!isRecording) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-
-    // 新增：音量分析
-    audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(stream);
-    analyser = audioContext.createAnalyser();
-    source.connect(analyser);
-    dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-    function updateMicAnimation() {
-      analyser.getByteTimeDomainData(dataArray);
-     let sum = 0;
-for (let i = 0; i < dataArray.length; i++) sum += (dataArray[i]-128)**2;
-let rms = Math.sqrt(sum / dataArray.length) / 128;
-btn.style.transform = `scale(${1 + rms * 0.6})`;
-      if (isRecording) requestAnimationFrame(updateMicAnimation);
-      else btn.style.transform = `scale(${1 + rms * 0.6})`;
-    }
-    updateMicAnimation();
-
-    mediaRecorder.ondataavailable = (event) => {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(event.data);
-    };
-
-    mediaRecorder.start(500);
-    isRecording = true;
-    addChat("Listening...", "user");
-
-  } else {
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(track => track.stop());
-    audioContext.close();
-    isRecording = false;
-    document.getElementById("mic-btn").style.transform = "scale(1)";
-  }
-}
-function testVoice() {
-  const msg = "Hello, I am Lexi.";
-  speak(msg);
-  addChat(msg, "ai");
-}
-function takeSnapshot() {
-  const video = document.getElementById("video");
-  const canvas = document.createElement("canvas");
-
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  canvas.getContext("2d").drawImage(video, 0, 0);
-
-  // 1️⃣ 生成缩略图 URL 并显示
-  const snapshotImg = document.getElementById("snapshot-img");
-  canvas.toBlob((blob) => {
-    const url = URL.createObjectURL(blob);
-    snapshotImg.src = url;
-    document.getElementById("snapshot-thumb").style.display = "block";
-
-    // 2️⃣ 发送给后端（可选，后续阶段）
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(blob);
-    }
-  }, "image/jpeg");
-
-  addChat("Snapshot sent.", "user");
+/* ================= RESET & BASE ================= */
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text-strong);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-function handleUpload(event) {
-  const files = event.target.files;
-
-  for (let f of files) {
-
-    // 🔐 先验证
-    if (!validateFile(f)) return;
-
-    addChat(`Uploaded: ${f.name}`, "user");
-
-    // 以后这里再加 fetch 上传
-  }
+/* ================= MAIN LAYOUT ================= */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 24px;
+  padding: 24px;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden; /* 防止内容撑开 */
 }
 
-function playMock() {
-  const msg = "Hello. I am Lexi. I will read this text for you.";
-  speak(msg);
-  addChat(msg, "ai");
+/* ================= CAMERA CARD ================= */
+.camera-card {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+ align-self: start;   /* 关键：不再被 Grid 竖直拉伸到底部 */
+}
+.camera-inner {
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(120deg, var(--g1), var(--g2)) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+ padding: 16px;                /* 四周留白更舒服 */
+  width: 100%;
+ height: auto;                 /* 不再强行占满整列高度 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  box-shadow: var(--shadow-1);
+}
+/* 上半：视频容器（相对定位，挂载缩略图/错误提示） */
+.camera-feed {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  overflow: hidden;           /* 让右上角缩略图圆角跟随 */
+  background: #FAFBFF;
+  aspect-ratio: 16 / 9;       /* ✅ 由这里来稳定高度比例 */
+}
+.camera-feed { box-shadow: 0 1px 0 rgba(0,0,0,0.06); }
+.camera-feed::after { display:none; }
+
+#video {
+  width: 100%;
+  height: 100%;
+ object-fit: contain;     /* 显示完整画面，不裁切 */
+ background: #FAFBFF;     /* 留白区域是柔和灰白，而不是黑色 */
+  border-radius: 16px;
 }
 
-function speak(text) {
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 0.9;
-  u.pitch = 1;
-  speechSynthesis.speak(u);
+/* ================= OVERLAY BUTTONS ================= */
+/* 若还存在，不使用绝对定位了（可删除整个 .camera-overlay 相关 HTML/CSS） */
+.camera-overlay { position: static; bottom: auto; left: auto; }
+
+.btn {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 14px;
+  background: #fff;
+  color: var(--text-strong);
+  box-shadow: var(--shadow-1);
+  transition: background .2s ease, border-color .2s ease, transform .12s ease;
+}
+.btn:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+  border-color: #DAD5FF;
+  transform: translateY(-1px);
 }
 
-function stopSpeech() {
-  speechSynthesis.cancel();
+.mic-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  position: relative;
+  overflow: hidden;
+  transition: transform .2s ease, background .2s ease, border-color .2s ease, color .2s ease;
 }
 
-function explainSimply() {
-  const msg = "Here is a simpler explanation of the text.";
-  speak(msg);
-  addChat(msg, "ai");
+.mic-btn.recording {
+  background: #F1FCF3;
+  border-color: #D9F7E1;
+  color: #0F5132;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.10), var(--shadow-1);
 }
 
-function addChat(text, sender) {
-  const chatArea = document.getElementById("chat-scroll");
 
-  const div = document.createElement("div");
-  div.className = `chat-message ${sender}`;
-  div.textContent = text;
-
-  chatArea.appendChild(div);
-
-  // 自动滚动到底部
-  chatArea.scrollTop = chatArea.scrollHeight;
+.mic-btn.recording::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 10%;
+  width: 6px;
+  height: 6px;
+  background: #34D399;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  animation: pulse 1s infinite;
+  opacity: .7;
 }
 
-function increaseFont() {
-  const el = document.getElementById("reading-text");
-  let size = parseFloat(window.getComputedStyle(el).fontSize);
-  el.style.fontSize = size + 2 + "px";
+@keyframes pulse {
+  0%   { transform: translateX(-50%) scale(1);   opacity: .35; }
+  50%  { transform: translateX(-50%) scale(1.8); opacity: .8;  }
+  100% { transform: translateX(-50%) scale(1);   opacity: .35; }
+}
+/* 相机内框：与外卡片对齐的次级边框容器 */
+.camera-frame {
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px 12px 10px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto; /* 上：视频自适应；下：按钮自然高度 */
+  gap: 10px;
+  width: 100%;
+}
+/* ================= RIGHT PANEL ================= */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0; /* 防止撑开 */
+  padding-top: 0; /* ✅ 新增，让标题和上方有空隙 */
+
 }
 
-function decreaseFont() {
-  const el = document.getElementById("reading-text");
-  let size = parseFloat(window.getComputedStyle(el).fontSize);
-  if (size > 16) el.style.fontSize = size - 2 + "px";
+.panel-title {
+  font-weight: bold;
+  font-size: 16px;
+  margin-bottom: 12px;
 }
 
-// ===== Mock Highlight =====
-let mockWords = ["This","is","a","mock","text","for","highlighting","test"];
-let currentWord = 0;
-
-function renderMockText() {
-  const container = document.getElementById("reading-text");
-  container.innerHTML = "";
-
-  mockWords.forEach((word, index) => {
-    const span = document.createElement("span");
-    span.textContent = word + " ";
-    span.dataset.index = index;
-    container.appendChild(span);
-  });
+.text-display {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 16px 20px;
+  font-size: 16px;
+  line-height: 1.65;
+  box-shadow: var(--shadow-1);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
-function renderMockTextForMode(mode) {
-  let words;
-
-  if (mode === "book") {
-    words = ["This","is","book","mode","reading","example"];
-  }
-
-  if (mode === "form") {
-    words = ["Please","fill","out","this","form","carefully"];
-  }
-
-  if (mode === "study") {
-    words = ["Study","mode","helps","you","learn","faster"];
-  }
-
-  if (mode === "write") {
-    words = ["Write","mode","assists","your","creativity"];
-  }
-
-  mockWords = words;
-  currentWord = 0;
-  renderMockText();
+/* 顶部 3px 渐变强调线 */
+.text-display::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(90deg, var(--g1), var(--g2));
 }
-function highlightLoop() {
-  const spans = document.querySelectorAll("#reading-text span");
-
-  if (spans.length === 0) return;   // ✅ 先检查
-
-  spans.forEach(s => s.classList.remove("active-word"));
-
-  if (spans[currentWord]) {
-    spans[currentWord].classList.add("active-word");
-  }
-
-  currentWord = (currentWord + 1) % spans.length;
+/* ================= CHAT HISTORY ================= */
+.chat-history {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 15px 6px 15px 15px;
+  display: flex;             /* ✅ 新增 flex */
+  flex-direction: column;    /* ✅ 垂直排列标题+消息区 */
+  flex: 1;
+  min-height: 0;             /* ✅ 必须，否则 flex 子元素无法收缩 */
+  overflow: hidden;          /* ✅ 防止内容超出 */
 }
-function highlightWord(index) {
-  const spans = document.querySelectorAll("#reading-text span");
-  spans.forEach(s => s.classList.remove("active-word"));
 
-  if (spans[index]) {
-    spans[index].classList.add("active-word");
-    spans[index].scrollIntoView({
-      behavior: "smooth",
-      block: "center"
-    });
-  }
+.chat-scroll {
+  flex: 1;                   /* 占满剩余空间 */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-behavior: smooth;
 }
-function showInlineError(message) {
-  const el = document.getElementById("inline-error");
-  el.textContent = message;
-  el.style.display = "block";
 
-  setTimeout(() => {
-    el.style.display = "none";
-  }, 3000);
+/* ================= CHAT MESSAGES BASE ================= */
+.chat-message {
+  padding: 8px 12px;
+  border-radius: 12px;
+  max-width: 58%;
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  animation: fadeIn 0.25s ease;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin: 0;   /* 保持0，让gap控制间距 */
 }
-function initWebSocket() {
-  ws = new WebSocket(CONFIG.WS_URL);
 
-  ws.onopen = () => {
-    console.log("WebSocket connected");
-    addChat("WebSocket connected.", "ai");
-  };
+/* ================= AI BUBBLE (左) ================= */
+.chat-message.ai {
+  align-self: flex-start;
+  margin-right: auto;
+  background: linear-gradient(135deg, #d8b4fe 0%, #f3e8ff 100%);
+  color: #1f2933;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.3),  
+    0 3px 10px rgba(0,0,0,0.1);  
+    backdrop-filter: blur(4px); /* 毛玻璃轻微效果 */
 
-  ws.onmessage = (event) => {
-    const data = event.data;
-    try {
-      const parsed = JSON.parse(data);
-      if (parsed.type === "text") addChat(parsed.message, "ai");
-      if (parsed.type === "highlight") highlightWord(parsed.index);
-      if (parsed.type === "mode") renderMockTextForMode(parsed.mode);
-    } catch {
-      console.log("Non-JSON message:", data);
-    }
-  };
-
-  ws.onerror = (err) => {
-    console.error("WebSocket error:", err);
-  };
-
-  ws.onclose = () => {
-    console.log("WebSocket closed, retrying in 2s...");
-    addChat("WebSocket disconnected. Reconnecting...", "ai");
-    setTimeout(initWebSocket, 2000); // 2 秒后重连
-  };
 }
-setInterval(highlightLoop, 800);
-renderMockText();
+
+/* ================= USER BUBBLE (右) ================= */
+.chat-message.user {
+  align-self: flex-end;
+  margin-left: auto;
+  background: rgba(75,85,99,0.2);             
+  color: #1f2933;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    0 3px 10px rgba(0,0,0,0.1);
+}
+
+/* ================= HOVER EFFECT ================= */
+.chat-message:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* ================= FADE-IN ANIMATION ================= */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ================= SCROLLBAR ================= */
+.chat-history::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-history::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+
+
+/* ================= ACTIVE WORD HIGHLIGHT ================= */
+.active-word {
+  background: #ffd54f;
+  border-radius: 4px;
+}
+
+/* ================= CONTROL BAR ================= */
+.control-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  box-shadow: var(--shadow-1);
+}
+
+.btn-outline {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-strong);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background .2s ease, border-color .2s ease, transform .12s ease;
+}
+.btn-outline:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+  border-color: #DAD5FF;
+}
+/* ================= SCROLLBARS ================= */
+.text-display::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+.chat-history::-webkit-scrollbar {
+  width: 8px;
+}
+
+.text-display::-webkit-scrollbar-thumb,
+
+.mode-wrapper {
+  position: relative;
+}
+
+.mode-dropdown {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  display: none;
+  flex-direction: column;
+  min-width: 140px;
+  box-shadow: var(--shadow-2);
+}
+.mode-dropdown div {
+  padding: 8px 10px;
+  color: var(--text-strong);
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 8px;
+}
+.mode-dropdown div:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+}
+
+/* ===== Snapshot 缩略图 ===== */
+#snapshot-thumb {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 230px;
+  height: 170px;
+  overflow: hidden;
+  display: none;
+  z-index: 100;
+  border-radius: 12px;
+
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(120deg, var(--g1), var(--g2)) border-box;
+  box-shadow: var(--shadow-1);
+}
+#snapshot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.modal.show {
+  display: flex;
+  opacity: 1;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  width: 320px;
+  text-align: center;
+
+  transform: scale(0.9);
+  transition: transform 0.3s ease;
+}
+
+.modal.show .modal-content {
+  transform: scale(1);
+}
+
+
+/* 相对 camera-feed（视频区域内的右上角） */
+.inline-error {
+  position: absolute;   /* 相对 camera-inner */
+  top: 12px;
+  right: 12px;
+
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+
+  display: none;
+  z-index: 200;
+
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  animation: fadeIn 0.2s ease;
+}
+
+/* 下半：按钮区（不覆盖视频），内置左右两侧 */
+.camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px 2px; /* 更轻盈 */
+  background: transparent;     /* 去底色 */
+  border: none;                 /* 去边框 */
+  border-radius: 0;
+}
+
+.camera-controls .controls-left,
+.camera-controls .controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 用于与上面通用按钮样式融合（你已有 .btn 样式） */
+.camera-controls .btn {
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+/* 兼容原来的 mode 下拉样式 */
+.camera-controls .mode-wrapper { position: relative; }
