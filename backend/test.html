@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <title>LexiLens Backend Test</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial;
+            padding: 40px;
+            background: #1a1a1a;
+            color: white;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            color: #F9E79F;
+        }
+
+        p {
+            color: #aaaaaa;
+            margin-bottom: 30px;
+        }
+
+        ``` .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            padding: 15px 24px;
+            font-size: 15px;
+            font-family: Arial;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        #btn-connect {
+            background: #117A65;
+            color: white;
+        }
+
+        #btn-speak {
+            background: #1A5276;
+            color: white;
+        }
+
+        #btn-stop {
+            background: #C0392B;
+            color: white;
+        }
+
+        #btn-upload {
+            background: #6C3483;
+            color: white;
+        }
+
+        #btn-clear {
+            background: #444;
+            color: white;
+        }
+
+        #status-bar {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            background: #2C3E50;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #555;
+        }
+
+        .dot.green {
+            background: #2ECC71;
+        }
+
+        .dot.red {
+            background: #E74C3C;
+        }
+
+        .dot.yellow {
+            background: #F39C12;
+        }
+
+        #log {
+            background: #0D1117;
+            padding: 20px;
+            border-radius: 8px;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            line-height: 1.8;
+            border: 1px solid #2C3E50;
+        }
+
+        .pass {
+            color: #2ECC71;
+        }
+
+        .fail {
+            color: #E74C3C;
+        }
+
+        .info {
+            color: #F39C12;
+        }
+
+        .send {
+            color: #5DADE2;
+        }
+
+        .recv {
+            color: #A9DFBF;
+        }
+
+        .dim {
+            color: #666;
+        }
+    </style>
+    ```
+
+</head>
+
+<body>
+
+    ```
+    <h1>🔬 LexiLens Backend Test</h1>
+    <p>Run this page from <strong>http://localhost:8080/test</strong> — not from a local file.</p>
+
+    <!-- Status indicators -->
+    <div id="status-bar">
+        <div class="status-item">
+            <div class="dot" id="dot-backend"></div>
+            <span id="lbl-backend">Backend</span>
+        </div>
+        <div class="status-item">
+            <div class="dot" id="dot-ws"></div>
+            <span id="lbl-ws">WebSocket</span>
+        </div>
+        <div class="status-item">
+            <div class="dot" id="dot-token"></div>
+            <span id="lbl-token">Session Token</span>
+        </div>
+        <div class="status-item">
+            <div class="dot" id="dot-mic"></div>
+            <span id="lbl-mic">Microphone</span>
+        </div>
+        <div class="status-item">
+            <div class="dot" id="dot-lexi"></div>
+            <span id="lbl-lexi">Lexi Audio</span>
+        </div>
+        <div class="status-item">
+            <div class="dot" id="dot-upload"></div>
+            <span id="lbl-upload">File Upload</span>
+        </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="buttons">
+        <button id="btn-connect" onclick="connectWS()">1. Connect WebSocket</button>
+        <button id="btn-speak" onclick="startMic()" disabled>2. Start Speaking</button>
+        <button id="btn-stop" onclick="stopMic()" disabled>3. Stop Mic</button>
+        <button id="btn-upload" onclick="testUpload()">4. Test File Upload</button>
+        <button id="btn-clear" onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <!-- Log output -->
+    <div id="log"></div>
+
+    <script>
+        /* ── Config ──────────────────────────────────────────────── */
+        const BACKEND = '';   // empty = same origin (localhost:8080)
+        const WS_URL = `ws://${location.host}/ws/session`;
+        const SESSION_TOKEN = crypto.randomUUID();
+
+        /* ── State ───────────────────────────────────────────────── */
+        let ws, mediaRecorder, audioCtx, audioQueue = [], isPlaying = false;
+
+        /* ── Logging helpers ─────────────────────────────────────── */
+        const logEl = document.getElementById('log');
+
+        function addLog(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            logEl.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            logEl.innerHTML = '';
+            addLog('Log cleared.', 'dim');
+        }
+
+        function setDot(id, color, label) {
+            document.getElementById('dot-' + id).className = 'dot ' + color;
+            if (label) document.getElementById('lbl-' + id).textContent = label;
+        }
+
+        /* ── 0. Auto health check on load ────────────────────────── */
+        window.onload = async () => {
+            addLog('Checking backend health...', 'dim');
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                addLog(`✅ Backend is running — ${JSON.stringify(data)}`, 'pass');
+                setDot('backend', 'green', 'Backend ✅');
+            } catch (e) {
+                addLog('❌ Backend not reachable. Make sure uvicorn is running on port 8080 AND you opened this page at http://localhost:8080/test', 'fail');
+                setDot('backend', 'red', 'Backend ❌');
+            }
+            addLog(`Session token generated: ${SESSION_TOKEN.slice(0, 8)}...`, 'dim');
+        };
+
+        /* ── 1. WebSocket connection ──────────────────────────────── */
+        function connectWS() {
+            addLog(`Connecting to ${WS_URL} ...`, 'info');
+
+            ws = new WebSocket(WS_URL);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                addLog('✅ WebSocket connection opened', 'pass');
+                setDot('ws', 'yellow', 'WebSocket 🔄');
+
+                // Send auth message with session token immediately
+                const authMsg = JSON.stringify({
+                    type: 'auth',
+                    session_token: SESSION_TOKEN
+                });
+                ws.send(authMsg);
+                addLog(`→ Sent auth message with session token`, 'send');
+                setDot('token', 'green', 'Session Token ✅');
+            };
+
+            ws.onmessage = async (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    const bytes = event.data.byteLength;
+                    addLog(`← Received ${bytes} bytes of audio from Lexi`, 'recv');
+                    setDot('lexi', 'green', 'Lexi Audio ✅');
+                    await playAudioChunk(event.data);
+                } else {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addLog(`← Received: ${JSON.stringify(data)}`, 'recv');
+
+                        if (data.type === 'error') {
+                            addLog(`❌ Server error: ${data.message}`, 'fail');
+                        } else if (data.type === 'connected' || data.type === 'ready') {
+                            addLog('✅ WebSocket session ready — you can speak now', 'pass');
+                            setDot('ws', 'green', 'WebSocket ✅');
+                            document.getElementById('btn-speak').disabled = false;
+                        } else if (data.type === 'transcript') {
+                            addLog(`📝 Lexi said: "${data.text}"`, 'pass');
+                        } else if (data.type === 'highlight') {
+                            addLog(`🔆 Highlight word index: ${data.word_index}`, 'info');
+                        }
+                    } catch {
+                        addLog(`← Raw message: ${event.data}`, 'recv');
+                    }
+                }
+            };
+
+            ws.onerror = (e) => {
+                addLog('❌ WebSocket error — check backend terminal for details', 'fail');
+                setDot('ws', 'red', 'WebSocket ❌');
+            };
+
+            ws.onclose = (e) => {
+                addLog(`WebSocket closed — code: ${e.code}, reason: ${e.reason || 'none'}`, 'info');
+                if (e.code === 4001) {
+                    addLog('❌ Code 4001 = session token rejected. Check backend security.py', 'fail');
+                    setDot('token', 'red', 'Session Token ❌');
+                }
+                setDot('ws', 'red', 'WebSocket closed');
+                document.getElementById('btn-speak').disabled = true;
+            };
+
+            // Enable speak after short delay even if no 'ready' message
+            setTimeout(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    document.getElementById('btn-speak').disabled = false;
+                    setDot('ws', 'green', 'WebSocket ✅');
+                    addLog('WebSocket open — try speaking now', 'pass');
+                }
+            }, 1500);
+        }
+
+        /* ── 2. Microphone capture ───────────────────────────────── */
+        async function startMic() {
+            addLog('Requesting microphone permission...', 'info');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                    }
+                });
+
+                addLog('✅ Microphone access granted', 'pass');
+                setDot('mic', 'green', 'Microphone ✅');
+
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = async (e) => {
+                    if (e.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
+                        const buffer = await e.data.arrayBuffer();
+                        ws.send(buffer);
+                        addLog(`→ Sent ${buffer.byteLength} bytes of audio`, 'send');
+                    }
+                };
+
+                mediaRecorder.start(250); // send every 250ms
+                addLog('🎤 Mic is live — speak now. Lexi should respond with audio...', 'pass');
+                document.getElementById('btn-stop').disabled = false;
+                document.getElementById('btn-speak').disabled = true;
+
+            } catch (e) {
+                addLog(`❌ Microphone error: ${e.message}`, 'fail');
+                setDot('mic', 'red', 'Microphone ❌');
+            }
+        }
+
+        function stopMic() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                addLog('Microphone stopped', 'info');
+                setDot('mic', 'yellow', 'Microphone stopped');
+            }
+            document.getElementById('btn-speak').disabled = false;
+            document.getElementById('btn-stop').disabled = true;
+        }
+
+        /* ── 3. Audio playback ───────────────────────────────────── */
+        async function playAudioChunk(arrayBuffer) {
+            audioCtx = audioCtx || new AudioContext({ sampleRate: 24000 });
+            audioQueue.push(arrayBuffer);
+            if (!isPlaying) drainQueue();
+        }
+
+        async function drainQueue() {
+            if (audioQueue.length === 0) { isPlaying = false; return; }
+            isPlaying = true;
+            const buf = audioQueue.shift();
+
+            try {
+                const decoded = await audioCtx.decodeAudioData(buf.slice(0));
+                const source = audioCtx.createBufferSource();
+                source.buffer = decoded;
+                source.connect(audioCtx.destination);
+                source.onended = drainQueue;
+                source.start();
+                addLog('🔊 Playing Lexi audio chunk...', 'pass');
+            } catch {
+                // Try raw PCM16 at 24kHz
+                try {
+                    const pcm = new Int16Array(buf);
+                    const float = new Float32Array(pcm.length);
+                    for (let i = 0; i < pcm.length; i++) float[i] = pcm[i] / 32768;
+                    const ab = audioCtx.createBuffer(1, float.length, 24000);
+                    ab.copyToChannel(float, 0);
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = ab;
+                    source.connect(audioCtx.destination);
+                    source.onended = drainQueue;
+                    source.start();
+                    addLog('🔊 Playing raw PCM audio from Lexi...', 'pass');
+                } catch (e2) {
+                    addLog(`Audio decode failed: ${e2.message}`, 'fail');
+                    drainQueue();
+                }
+            }
+        }
+
+        /* ── 4. File upload test ─────────────────────────────────── */
+        function testUpload() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.pdf,image/png,image/jpeg,image/webp';
+
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                addLog(`Uploading: ${file.name} (${(file.size / 1024).toFixed(1)} KB, ${file.type})`, 'info');
+
+                // Client-side validation
+                const ALLOWED = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
+                if (!ALLOWED.includes(file.type)) {
+                    addLog('❌ File type not allowed — only PDF, PNG, JPG, WEBP', 'fail');
+                    setDot('upload', 'red', 'Upload ❌');
+                    return;
+                }
+                if (file.size > 10 * 1024 * 1024) {
+                    addLog('❌ File too large — maximum 10MB', 'fail');
+                    setDot('upload', 'red', 'Upload ❌');
+                    return;
+                }
+
+                const endpoint = file.type === 'application/pdf'
+                    ? '/api/upload'
+                    : '/api/upload-image';
+
+                addLog(`Sending to ${endpoint} ...`, 'info');
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const res = await fetch(endpoint, { method: 'POST', body: formData });
+                    const data = await res.json();
+
+                    if (res.ok && data.words && data.words.length > 0) {
+                        addLog(`✅ Upload works! Extracted ${data.words.length} words`, 'pass');
+                        addLog(`First 10 words: ${data.words.slice(0, 10).map(w => w.word).join(' ')}`, 'pass');
+                        addLog(`Full text preview: "${data.full_text.slice(0, 150)}..."`, 'pass');
+                        setDot('upload', 'green', 'File Upload ✅');
+                    } else if (res.ok && data.full_text) {
+                        addLog(`✅ Upload works! Got text back (${data.full_text.length} chars)`, 'pass');
+                        addLog(`Preview: "${data.full_text.slice(0, 150)}..."`, 'pass');
+                        setDot('upload', 'green', 'File Upload ✅');
+                    } else {
+                        addLog(`❌ Unexpected response: ${JSON.stringify(data)}`, 'fail');
+                        setDot('upload', 'red', 'Upload ❌');
+                    }
+                } catch (e) {
+                    addLog(`❌ Upload failed: ${e.message}`, 'fail');
+                    addLog('Make sure /api/upload endpoint exists in main.py', 'fail');
+                    setDot('upload', 'red', 'Upload ❌');
+                }
+            };
+
+            input.click();
+        }
+    </script>
+    ```
+
+</body>
+
+</html>

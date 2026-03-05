@@ -8,8 +8,10 @@ for real-time audio-in / audio-out with automatic barge-in (server VAD).
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from google import genai
 from google.genai import types
@@ -117,3 +119,24 @@ class LexiAgent:
             except Exception:
                 logger.exception("Error in Lexi receive loop")
                 break
+
+
+# ---------------------------------------------------------------------------
+# Highlight events — word-by-word highlight for the reading view
+# ---------------------------------------------------------------------------
+
+async def emit_highlight_events(
+    websocket: Any, words: list[dict], delay: float = 0.3
+) -> None:
+    """
+    Send ``{type: 'highlight', word_index: N}`` for each word in *words*.
+
+    Args:
+        websocket: A FastAPI WebSocket instance.
+        words:     List of word dicts (each must have an ``index`` key).
+        delay:     Seconds to wait between highlight events.
+    """
+    for w in words:
+        msg = json.dumps({"type": "highlight", "word_index": w["index"]})
+        await websocket.send_text(msg)
+        await asyncio.sleep(delay)
