@@ -115,7 +115,7 @@ async function toggleMic() {
   let btn = document.getElementById("mic-btn");
 
   if (!isRecording) {
-
+    btn.classList.add("recording");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
 
@@ -143,12 +143,20 @@ async function toggleMic() {
       let avg = sum / dataArray.length;
       let normalized = avg / 255;
 
-      if (normalized < 0.05) {
-        btn.style.transform = "scale(1)";
-      } else {
-        btn.style.transform = `scale(${1 + normalized * 0.9})`;
-      }
+      let energy = Math.min(normalized * 1.5, 1);
 
+// 1️⃣ 微幅整体放大
+btn.style.transform = `scale(${1 + energy * 0.4})`;
+
+// 2️⃣ 设置 CSS 变量给底部能量条
+btn.style.setProperty("--energy", energy);
+
+// 3️⃣ 控制安静状态 class
+if (energy < 0.05) {
+  btn.classList.add("silent");
+} else {
+  btn.classList.remove("silent");
+}
       if (isRecording) {
         requestAnimationFrame(updateMicAnimation);
       } else {
@@ -163,12 +171,18 @@ async function toggleMic() {
 
   } else {
 
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(t => t.stop());
-    audioContext.close();
-    isRecording = false;
-    btn.style.transform = "scale(1)";
-  }
+  btn.classList.remove("recording");
+  btn.classList.remove("silent");          // ⭐ 加这个
+  btn.style.setProperty("--energy", 0);    // ⭐ 加这个
+
+  mediaRecorder.stop();
+  mediaRecorder.stream.getTracks().forEach(t => t.stop());
+  audioContext.close();
+
+  isRecording = false;
+
+  btn.style.transform = "scale(1)";
+}
 }
 function testVoice() {
   const msg = "Hello, I am Lexi.";
