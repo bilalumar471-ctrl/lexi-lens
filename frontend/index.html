@@ -8,8 +8,16 @@
 content="default-src 'self';
 img-src 'self' blob: data:;
 media-src 'self' blob:;
-connect-src 'self' ws://localhost:8080 http://localhost:8080;
-script-src 'self';
+    
+connect-src 'self'
+ws://localhost:8080
+http://localhost:8080
+wss://yourdomain
+https://yourdomain;
+wss://YOUR_CLOUD_RUN_URL
+https://YOUR_CLOUD_RUN_URL;
+    
+    script-src 'self';
 style-src 'self' 'unsafe-inline';">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -19,9 +27,9 @@ style-src 'self' 'unsafe-inline';">
   <div class="modal-content">
     <h2>Privacy Notice</h2>
     <p>
-      This app uses your camera and microphone for real-time reading assistance.
-      Your session data is not permanently stored.
-    </p>
+LexiLens processes your voice and camera feed in real time to help you read.
+Your session data is automatically deleted within 24 hours and never shared with third parties.
+</p>
     <button id="consent-btn" class="btn">I Agree</button>
   </div>
 </div>
@@ -54,7 +62,7 @@ style-src 'self' 'unsafe-inline';">
           <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
           <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
           <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
-          <input type="file" id="file-input" style="display:none" multiple>
+          <input type="file" id="file-input">
         </div>
 
         <div class="controls-right">

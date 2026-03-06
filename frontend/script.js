@@ -2,7 +2,6 @@ const CONFIG = {
   WS_URL: "ws://localhost:8080/ws/session",
   API_URL: "http://localhost:8080"
 };
-const SESSION_TOKEN = crypto.randomUUID();
 const ALLOWED_TYPES = [
   'application/pdf',
   'image/png',
@@ -27,11 +26,19 @@ window.addEventListener("DOMContentLoaded", () => {
 }
 });
 
-function initSession() {
+let SESSION_TOKEN = null;
+
+async function initSession() {
+  const res = await fetch(`${CONFIG.API_URL}/api/session`, {
+    method: "POST"
+  });
+
+  const data = await res.json();
+  SESSION_TOKEN = data.session_token;
+
   initCamera();
   initWebSocket();
 }
-
 async function initCamera() {
   try {
 videoStream = await navigator.mediaDevices.getUserMedia({
@@ -115,7 +122,7 @@ async function toggleMic() {
   let btn = document.getElementById("mic-btn");
 
   if (!isRecording) {
-
+    btn.classList.add("recording");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
 
@@ -143,12 +150,20 @@ async function toggleMic() {
       let avg = sum / dataArray.length;
       let normalized = avg / 255;
 
-      if (normalized < 0.05) {
-        btn.style.transform = "scale(1)";
-      } else {
-        btn.style.transform = `scale(${1 + normalized * 0.9})`;
-      }
+      let energy = Math.min(normalized * 1.5, 1);
 
+// 1️⃣ 微幅整体放大
+btn.style.transform = `scale(${1 + energy * 0.4})`;
+
+// 2️⃣ 设置 CSS 变量给底部能量条
+btn.style.setProperty("--energy", energy);
+
+// 3️⃣ 控制安静状态 class
+if (energy < 0.05) {
+  btn.classList.add("silent");
+} else {
+  btn.classList.remove("silent");
+}
       if (isRecording) {
         requestAnimationFrame(updateMicAnimation);
       } else {
@@ -159,22 +174,29 @@ async function toggleMic() {
     updateMicAnimation();   // ⭐⭐⭐ 关键：启动动画循环
 
     mediaRecorder.start(500);
+    mediaRecorder.ondataavailable = (event) => {
+  if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(event.data); // 🔥 直接发送 binary
+  }
+};
     addChat("Listening...", "user");
 
   } else {
 
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(t => t.stop());
-    audioContext.close();
-    isRecording = false;
-    btn.style.transform = "scale(1)";
-  }
+  btn.classList.remove("recording");
+  btn.classList.remove("silent");          // ⭐ 加这个
+  btn.style.setProperty("--energy", 0);    // ⭐ 加这个
+
+  mediaRecorder.stop();
+  mediaRecorder.stream.getTracks().forEach(t => t.stop());
+  audioContext.close();
+
+  isRecording = false;
+
+  btn.style.transform = "scale(1)";
 }
-function testVoice() {
-  const msg = "Hello, I am Lexi.";
-  speak(msg);
-  addChat(msg, "ai");
 }
+
 function takeSnapshot() {
   const video = document.getElementById("video");
   const canvas = document.createElement("canvas");
@@ -193,9 +215,14 @@ function takeSnapshot() {
 
     // 2️⃣ 发送给后端（可选，后续阶段）
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(blob);
-    }
-  }, "image/jpeg");
+      const reader = new FileReader();
+  reader.onloadend = () => {
+    sendMessage("snapshot", {
+      frame: reader.result   // base64
+    });
+  };
+  reader.readAsDataURL(blob);
+}, "image/jpeg");
 
   addChat("Snapshot sent.", "user");
 }
@@ -210,27 +237,19 @@ function handleUpload(event) {
 
     addChat(`Uploaded: ${f.name}`, "user");
 
-    // 以后这里再加 fetch 上传
-  }
+const formData = new FormData();
+formData.append("file", f);
+
+fetch(`${CONFIG.API_URL}/api/upload`, {
+  method: "POST",
+  body: formData
+})
+.then(res => res.json())
+.then(data => {
+  addChat("File processed.", "ai");
+});  }
 }
 
-function playMock() {
-  const msg = "Hello. I am Lexi. I will read this text for you.";
-  speak(msg);
-  addChat(msg, "ai");
-}
-
-function speak(text) {
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 0.9;
-  u.pitch = 1;
-  speechSynthesis.speak(u);
-}
-
-function stopSpeech() {
-  speechSynthesis.cancel();
-}
 
 function explainSimply() {
   const msg = "Here is a simpler explanation of the text.";
@@ -301,19 +320,7 @@ function renderMockTextForMode(mode) {
   currentWord = 0;
   renderMockText();
 }
-function highlightLoop() {
-  const spans = document.querySelectorAll("#reading-text span");
 
-  if (spans.length === 0) return;   // ✅ 先检查
-
-  spans.forEach(s => s.classList.remove("active-word"));
-
-  if (spans[currentWord]) {
-    spans[currentWord].classList.add("active-word");
-  }
-
-  currentWord = (currentWord + 1) % spans.length;
-}
 function highlightWord(index) {
   const spans = document.querySelectorAll("#reading-text span");
   spans.forEach(s => s.classList.remove("active-word"));
@@ -338,32 +345,51 @@ function showInlineError(message) {
 function initWebSocket() {
   ws = new WebSocket(CONFIG.WS_URL);
 
-  ws.onopen = () => {
-    console.log("WebSocket connected");
-    addChat("WebSocket connected.", "ai");
-  };
+ws.onopen = () => {
+  if (SESSION_TOKEN) {
+    sendMessage("audio", {});
+  }
+};
 
-  ws.onmessage = (event) => {
-    const data = event.data;
-    try {
-      const parsed = JSON.parse(data);
-      if (parsed.type === "text") addChat(parsed.message, "ai");
-      if (parsed.type === "highlight") highlightWord(parsed.index);
-      if (parsed.type === "mode") renderMockTextForMode(parsed.mode);
-    } catch {
-      console.log("Non-JSON message:", data);
-    }
-  };
+ws.onmessage = async (event) => {
 
-  ws.onerror = (err) => {
-    console.error("WebSocket error:", err);
-  };
+  // 🔥 如果是 binary（音频）
+  if (event.data instanceof Blob) {
+    const arrayBuffer = await event.data.arrayBuffer();
+    playAudioChunk(arrayBuffer);
+    return;
+  }
 
+  // 否则当 JSON
+  try {
+    const parsed = JSON.parse(event.data);
+
+    if (parsed.type === "text") addChat(parsed.message, "ai");
+    if (parsed.type === "highlight") highlightWord(parsed.word_index);
+    if (parsed.type === "mode") renderMockTextForMode(parsed.mode);
+
+  } catch {
+  }
+};
+
+ws.onerror = () => {
+  showStatus("Connection error. Please retry.");
+};
   ws.onclose = () => {
-    console.log("WebSocket closed, retrying in 2s...");
     addChat("WebSocket disconnected. Reconnecting...", "ai");
     setTimeout(initWebSocket, 2000); // 2 秒后重连
   };
 }
-setInterval(highlightLoop, 800);
+function showStatus(msg) {
+  addChat(msg, "ai");
+}
+let playbackContext = new AudioContext();
+
+async function playAudioChunk(arrayBuffer) {
+  const audioBuffer = await playbackContext.decodeAudioData(arrayBuffer);
+  const source = playbackContext.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(playbackContext.destination);
+  source.start();
+}
 renderMockText();

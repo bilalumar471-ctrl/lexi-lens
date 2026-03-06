@@ -109,29 +109,35 @@ body {
   overflow: hidden;
   transition: transform .2s ease, background .2s ease, border-color .2s ease, color .2s ease;
 }
-
-.mic-btn.recording {
-  background: #F1FCF3;
-  border-color: #D9F7E1;
-  color: #0F5132;
-  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.10), var(--shadow-1);
-}
-
-
-.mic-btn.recording::after {
+.mic-btn::before {
   content: "";
   position: absolute;
+  bottom: 6px;
   left: 50%;
-  bottom: 10%;
-  width: 6px;
-  height: 6px;
-  background: #34D399;
-  border-radius: 50%;
+  width: 22px;
+  height: 2px;
+  background: #10b981;
+  border-radius: 4px;
   transform: translateX(-50%);
-  animation: pulse 1s infinite;
-  opacity: .7;
+  transition: all .08s linear;
+}
+.mic-btn.recording {
+  background: #F6FFFA;
+  border-color: #BBF7D0;
+  color: #065f46;
+  box-shadow:
+    0 0 0 3px rgba(16,185,129,0.08),
+    var(--shadow-1);
+}
+.mic-btn.recording::before {
+  height: calc(2px + (var(--energy, 0) * 16px));
+  opacity: 0.9;
 }
 
+.mic-btn.silent::before {
+  height: 2px !important;
+  opacity: 0.5;
+}
 @keyframes pulse {
   0%   { transform: translateX(-50%) scale(1);   opacity: .35; }
   50%  { transform: translateX(-50%) scale(1.8); opacity: .8;  }
