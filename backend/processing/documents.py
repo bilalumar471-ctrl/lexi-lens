@@ -140,21 +140,33 @@ async def upload_image(file: UploadFile = File(...)):
     settings = get_settings()
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-    response = await client.aio.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=[
-            types.Content(
-                parts=[
-                    types.Part.from_bytes(data=data, mime_type=detected_mime),
-                    types.Part(
-                        text="Extract all visible text from this image. "
-                        "Return ONLY the raw text, preserving the original order. "
-                        "Do not add any commentary."
-                    ),
-                ]
-            )
-        ],
-    )
+    try:
+        response = await client.aio.models.generate_content(
+            model="gemini-2.0-flash-lite",
+            contents=[
+                types.Content(
+                    parts=[
+                        types.Part.from_bytes(data=data, mime_type=detected_mime),
+                        types.Part(
+                            text="Extract all visible text from this image. "
+                            "Return ONLY the raw text, preserving the original order. "
+                            "Do not add any commentary."
+                        ),
+                    ]
+                )
+            ],
+        )
+    except Exception as e:
+        logger.exception("Gemini API error during image OCR")
+        raw_code = getattr(e, "status_code", None)
+        try:
+            code = int(raw_code)
+        except (TypeError, ValueError):
+            code = 500
+        raise HTTPException(
+            status_code=code,
+            detail=f"Gemini API error: {e}",
+        )
 
     extracted_text = response.text.strip() if response.text else ""
 
