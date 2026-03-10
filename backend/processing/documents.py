@@ -11,6 +11,7 @@ from typing import Any
 import fitz  # PyMuPDF
 import magic
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
@@ -180,3 +181,64 @@ async def upload_image(file: UploadFile = File(...)):
         result,
     )
     return {"full_text": extracted_text, "words": words_list}
+
+
+# ---------------------------------------------------------------------------
+# URL processing → POST /api/fetch-url
+# ---------------------------------------------------------------------------
+
+class URLRequest(BaseModel):
+    url: str
+
+@router.post("/api/fetch-url")
+async def fetch_url(req: URLRequest):
+    import aiohttp
+    from bs4 import BeautifulSoup
+    
+    url = req.url.strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="Invalid URL scheme. Must start with http:// or https://")
+        
+    try:
+        # 1. Fetch HTML
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=15) as resp:
+                if resp.status != 200:
+                    raise HTTPException(status_code=resp.status, detail=f"Failed to fetch URL. Status: {resp.status}")
+                html = await resp.text()
+                
+        # 2. Basic cleanup (remove scripts, styles)
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            tag.decompose()
+        clean_html = soup.get_text(separator="\n")
+        
+        # 3. Use Gemini to perfectly extract just the main article body
+        settings = get_settings()
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        
+        prompt = (
+            "You are a text extraction bot. I will give you the raw text dump of a webpage. "
+            "Please extract ONLY the main article content or the primary readable text body. "
+            "Ignore all menus, sidebars, cookie notices, and advertisements. "
+            "Return the pure, clean text. Do not add any conversational filler or formatting, just plain text.\n\n"
+            f"HTML Dump:\n{clean_html[:30000]}" # Limit size to prevent massive token usage
+        )
+        
+        response = await client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        
+        extracted_text = response.text.strip() if response.text else "Could not extract text from this URL."
+        
+        words_list = []
+        for idx, word in enumerate(extracted_text.split()):
+            words_list.append({"word": word, "index": idx, "page": 1})
+            
+        logger.info(f"URL processed: {url}")
+        return {"full_text": extracted_text, "words": words_list}
+        
+    except Exception as e:
+        logger.exception("Error fetching URL")
+        raise HTTPException(status_code=500, detail=str(e))

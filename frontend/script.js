@@ -88,33 +88,36 @@ function initDyslexiaFeatures() {
   const ruler = document.getElementById("reading-ruler");
   const textDisplay = document.querySelector(".text-display");
   
+  // Initialize global state for the ruler
+  window.isRulerActive = false;
+
   // Reading Ruler Toggle
   if (rulerToggle && ruler) {
     rulerToggle.addEventListener("click", () => {
-      isRulerActive = !isRulerActive;
-      ruler.classList.toggle("active", isRulerActive);
-      rulerToggle.classList.toggle("active-toggle", isRulerActive);
+      window.isRulerActive = !window.isRulerActive;
+      ruler.classList.toggle("active", window.isRulerActive);
+      rulerToggle.classList.toggle("active-toggle", window.isRulerActive);
+      
+      if (window.isRulerActive) {
+        ruler.style.display = "block";
+      } else {
+        ruler.style.display = "none";
+      }
     });
     
     // Ruler follows mouse Y position
     document.addEventListener("mousemove", (e) => {
-      if (isRulerActive && ruler) {
-        // Position ruler centered on mouse Y, visually following the cursor everywhere
-        // but clamped roughly to the text display area
+      if (window.isRulerActive && ruler && textDisplay) {
         const containerRect = textDisplay.getBoundingClientRect();
         
-        // Only show ruler if mouse is roughly inside the text display area
+        // Only show ruler if mouse is inside the text display area
         if (e.clientX >= containerRect.left && e.clientX <= containerRect.right &&
             e.clientY >= containerRect.top && e.clientY <= containerRect.bottom) {
           ruler.style.display = "block";
-          // relative to the container
-          const yPos = e.clientY - containerRect.top + textDisplay.scrollTop;
-          ruler.style.top = `${yPos - 25}px`; // Center the new 50px high ruler
+          ruler.style.top = `${e.clientY - 25}px`; // Fixed position: use viewport clientY
         } else {
           ruler.style.display = "none";
         }
-      } else if (ruler) {
-          ruler.style.display = "none";
       }
     });
   }
@@ -244,6 +247,42 @@ function takeSnapshot(){
   }, "image/jpeg");
 
   addChat("Snapshot taken.","user");
+}
+
+async function fetchUrl() {
+  const urlInput = document.getElementById("url-input").value;
+  if(!urlInput) return;
+  
+  addChat("Fetching URL article...","user");
+  
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/api/fetch-url`, {
+      method:"POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: urlInput })
+    });
+    
+    if (!res.ok) {
+       addChat("Failed to fetch URL. Ensure it's reachable.","ai");
+       return;
+    }
+    
+    const data = await res.json();
+    console.log("[URL FETCH] Response:", data);
+
+    if(data.full_text){
+      mockWords = data.full_text.split(" ");
+      renderTextWithHighlight(data.full_text, true);
+      addChat(`Extracted ${data.words.length} words from the URL.`,"ai");
+    }
+    
+    // Clear input
+    document.getElementById("url-input").value = "";
+    
+  } catch (err) {
+    console.error("[URL FETCH] Error:", err);
+    addChat("Error fetching URL content.","ai");
+  }
 }
 
 // ================= MIC =================
@@ -901,6 +940,16 @@ function setupEvents(){
     .addEventListener("click",()=>document.getElementById("file-input").click());
   document.getElementById("file-input")
     .addEventListener("change",handleUpload);
+
+  const urlSubmitBtn = document.getElementById("url-submit-btn");
+  if(urlSubmitBtn) urlSubmitBtn.addEventListener("click", fetchUrl);
+  
+  const urlInput = document.getElementById("url-input");
+  if(urlInput) {
+      urlInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") fetchUrl();
+      });
+  }
 
   document.getElementById("mode-toggle")
     .addEventListener("click",()=>{

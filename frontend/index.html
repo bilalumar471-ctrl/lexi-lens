@@ -68,6 +68,13 @@ style-src 'self' 'unsafe-inline';
               <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
               <input type="file" id="file-input" style="display: none;">
             </div>
+            
+            <!-- URL Input Integration -->
+            <div class="url-control-group" style="flex: 1; display: flex; gap: 8px; margin: 0 12px;">
+              <input type="url" id="url-input" placeholder="Paste article link here..." 
+                     style="flex: 1; padding: 8px 12px; border-radius: 20px; border: 1px solid var(--border); font-family: inherit;">
+              <button id="url-submit-btn" class="btn-primary" style="padding: 8px 16px; border-radius: 20px; white-space: nowrap;">Load Link</button>
+            </div>
 
             <div class="controls-right">
               <div class="mode-wrapper">
@@ -101,8 +108,6 @@ style-src 'self' 'unsafe-inline';
             </div>
             <div id="reading-text" style="position: relative;">
               <p>The recognized text will appear here.</p>
-              <!-- Reading Ruler -->
-              <div id="reading-ruler"></div>
             </div>
             
             <!-- Selection Popup Button -->
@@ -149,6 +154,7 @@ style-src 'self' 'unsafe-inline';
     </div>
   </div>
 
+  <div id="reading-ruler"></div>
   <script src="script.js"></script>
 </body>
 

@@ -603,7 +603,7 @@ body {
 
 /* Tooltip */
 .difficult-word {
-  /* Removed position: relative from here so it doesn't affect anything, wait it's not needed for fixed tooltips anyway */
+  cursor: help;
 }
 .tooltip {
   visibility: hidden;
@@ -731,24 +731,32 @@ body {
 
 /* ================= READING RULER (SCREEN CURTAIN) ================= */
 #reading-ruler {
-  position: absolute;
+  position: fixed;
   left: 0;
   right: 0;
   height: 50px;
-  /* Kindle/Screen-Curtain effect: 
-     Instead of highlighting the line, we darken *everything else* using a massive box-shadow */
   background: transparent;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); 
   border-top: 2px solid rgba(169, 140, 255, 0.8);
   border-bottom: 2px solid rgba(169, 140, 255, 0.8);
   pointer-events: none;
-  z-index: 10;
-  display: none; /* Hidden by default */
-  /* Remove border radius so the shadow covers edge to edge */
+  z-index: 50;
+  display: none; 
 }
 
 #reading-ruler.active {
   display: block;
+}
+
+/* ================= URL INPUT ================= */
+.url-field:focus {
+  outline: none;
+  border-color: #A98CFF !important;
+  box-shadow: 0 0 0 2px rgba(169, 140, 255, 0.2);
+}
+.url-field {
+  transition: all 0.2s ease;
+  background: white;
 }
 
 /* ================= COLOR SWITCHER ================= */
