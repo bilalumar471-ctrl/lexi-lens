@@ -45,7 +45,7 @@ limiter = Limiter(key_func=get_remote_address)
 # Manual WS rate-limit store: {ip: [timestamp, ...]}
 _ws_connections: dict[str, list[float]] = defaultdict(list)
 
-WS_RATE_LIMIT = 10          # max connections
+WS_RATE_LIMIT = 1000        # max connections
 WS_RATE_WINDOW = 3600       # per hour (seconds)
 
 
@@ -78,6 +78,9 @@ ALLOWED_MESSAGE_TYPES: dict[str, set[str]] = {
     "audio":    {"session_token"},
     "mode":     {"session_token", "mode"},
     "text":     {"session_token", "message"},
+    "explain":  {"session_token", "text"},
+    "explain_selection": {"session_token", "context", "selection"},
+    "set_context": {"session_token", "text"},
     "snapshot": {"session_token"},
 }
 

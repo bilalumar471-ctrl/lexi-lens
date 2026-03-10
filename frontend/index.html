@@ -1,100 +1,116 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LexiLens UI</title>
 
-<meta http-equiv="Content-Security-Policy" content="
+  <meta http-equiv="Content-Security-Policy" content="
 default-src 'self';
 img-src 'self' blob: data:;
-media-src 'self' blob:;
+media-src 'self' blob: mediastream:;
 connect-src 'self'
-http://127.0.0.1:5000
-ws://127.0.0.1:5000
+http://127.0.0.1:8000
+ws://127.0.0.1:8000
+http://localhost:8000
+ws://localhost:8000
 http://127.0.0.1:5500
-ws://127.0.0.1:5500
-http://127.0.0.1:8080
-ws://127.0.0.1:8080;
+ws://127.0.0.1:5500;
 script-src 'self' 'unsafe-inline';
 style-src 'self' 'unsafe-inline';
 ">
 
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <!-- Privacy Modal -->
-<div id="privacy-modal" class="modal">
-  <div class="modal-content">
-    <h2>Privacy Notice</h2>
-    <p>
-LexiLens processes your voice and camera feed in real time to help you read.
-Your session data is automatically deleted within 24 hours and never shared with third parties.
-</p>
-    <button id="consent-btn" class="btn">I Agree</button>
+  <div id="privacy-modal" class="modal">
+    <div class="modal-content">
+      <h2>Privacy Notice</h2>
+      <p>
+        LexiLens processes your voice and camera feed in real time to help you read.
+        Your session data is automatically deleted within 24 hours and never shared with third parties.
+      </p>
+      <button id="consent-btn" class="btn">I Agree</button>
+    </div>
   </div>
-</div>
-<div id="app" class="theme-nano">
-  <div class="main-layout">
+  <div id="app" class="theme-nano">
+    <div id="status-indicator" class="status-offline">Connecting...</div>
+    <div class="main-layout">
       <!-- Camera Card -->
-<div class="camera-card card accent-border">
-  <div class="camera-inner">
+      <div class="camera-card card accent-border">
+        <div class="camera-inner">
 
-    <!-- 内框：上半是视频，下半是控制条 -->
-    <div class="camera-frame">
+          <!-- 内框：上半是视频，下半是控制条 -->
+          <div class="camera-frame">
 
-      <!-- 上半：视频区域（可含右上角缩略图与错误提示） -->
-      <div class="camera-feed">
+            <!-- 上半：视频区域（可含右上角缩略图与错误提示） -->
+            <div class="camera-feed">
 
-        <!-- 摄像区域错误提示 -->
-        <div id="inline-error" class="inline-error"></div>
+              <!-- 摄像区域错误提示 -->
+              <div id="inline-error" class="inline-error"></div>
 
-        <!-- 视频右上角缩略图 -->
-        <div id="snapshot-thumb" class="snapshot-thumb">
-          <img id="snapshot-img" src="" alt="Snapshot Thumbnail">
-        </div>
+              <!-- 视频右上角缩略图 -->
+              <div id="snapshot-thumb" class="snapshot-thumb">
+                <img id="snapshot-img" src="" alt="Snapshot Thumbnail">
+              </div>
 
-        <video id="video" autoplay muted></video>
-      </div>
-
-      <!-- 下半：按钮区（不覆盖视频） -->
-      <div class="camera-controls">
-        <div class="controls-left">
-          <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
-          <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
-          <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
-          <input type="file" id="file-input">
-        </div>
-
-        <div class="controls-right">
-          <div class="mode-wrapper">
-            <button id="mode-toggle" class="btn">⚙ Mode</button>
-            <div class="mode-dropdown" id="mode-dropdown">
-              <div data-mode="book">Book</div>
-              <div data-mode="form">Form</div>
-              <div data-mode="study">Study</div>
-              <div data-mode="write">Write</div>
+              <video id="video" autoplay muted></video>
             </div>
-          </div>
+
+            <!-- 下半：按钮区（不覆盖视频） -->
+            <div class="camera-controls">
+              <div class="controls-left">
+                <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
+                <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
+                <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
+                <input type="file" id="file-input">
+              </div>
+
+              <div class="controls-right">
+                <div class="mode-wrapper">
+                  <button id="mode-toggle" class="btn">⚙ Mode</button>
+                  <div class="mode-dropdown" id="mode-dropdown">
+                    <div data-mode="book">Book</div>
+                    <div data-mode="form">Form</div>
+                    <div data-mode="study">Study</div>
+                    <div data-mode="write">Write</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div><!-- /.camera-frame -->
+
         </div>
       </div>
-
-    </div><!-- /.camera-frame -->
-
-  </div>
-</div>
       <!-- Right Panel -->
       <div class="right-panel">
         <!-- Text Display Area -->
         <div class="text-display">
-          <div class="panel-title">Text Display Area</div>
-          <div id="reading-text">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div class="panel-title" style="margin-bottom: 0;">Text Display Area</div>
+            <div class="view-toggle" style="display: none;" id="view-toggle-container">
+              <button id="view-original-btn" class="btn-outline active-toggle" style="padding: 4px 8px; font-size: 12px;">📄 Original Text</button>
+              <button id="view-analyzed-btn" class="btn-outline" style="padding: 4px 8px; font-size: 12px;">📝 Summary Notes</button>
+            </div>
+          </div>
+          <div id="reading-text" style="position: relative;">
             <p>The recognized text will appear here.</p>
+            <!-- Reading Ruler -->
+            <div id="reading-ruler"></div>
+          </div>
+          
+          <!-- Selection Popup Button -->
+          <div id="selection-popup" class="selection-popup">
+            <button id="explain-selection-btn">🌟 Explain This</button>
           </div>
         </div>
 
         <!-- Chat Log Area -->
-         <div class="chat-history card">
+        <div class="chat-history card">
           <div class="panel-title">Chat Log</div>
 
           <div class="chat-scroll" id="chat-scroll">
@@ -103,12 +119,18 @@ Your session data is automatically deleted within 24 hours and never shared with
         </div>
 
         <!-- Control Buttons -->
-<div class="control-bar toolbar card">
-  <button id="explain-btn" class="btn-outline">Explain Simply</button>
-          <button id="test-voice-btn" class="btn-outline">🔊 Test Voice</button>
-          <button id="stop-btn" class="btn-outline">Stop Reading</button>
+        <div class="control-bar toolbar card">
+          <button id="explain-btn" class="btn-outline">Explain Simply</button>
+          <button id="ruler-toggle" class="btn-outline" title="Toggle Reading Ruler">📏 Ruler</button>
           <button id="font-increase" class="btn-outline">A+</button>
           <button id="font-decrease" class="btn-outline">A-</button>
+          <div class="color-switcher" title="Background Color">
+            <button class="color-dot" data-color="#FFFDF7" style="background:#FFFDF7;" title="Cream"></button>
+            <button class="color-dot" data-color="#F0F7FF" style="background:#F0F7FF;" title="Light Blue"></button>
+            <button class="color-dot" data-color="#F0FFF4" style="background:#F0FFF4;" title="Light Green"></button>
+            <button class="color-dot" data-color="#FFF5F5" style="background:#FFF5F5;" title="Light Pink"></button>
+            <button class="color-dot" data-color="#FFFFF0" style="background:#FFFFF0;" title="Light Yellow"></button>
+          </div>
         </div>
       </div>
     </div>
@@ -116,4 +138,5 @@ Your session data is automatically deleted within 24 hours and never shared with
 
   <script src="script.js"></script>
 </body>
+
 </html>

@@ -1,25 +1,36 @@
-:root {
-  --bg: #F8F9FB;
-  --panel: #FFFFFF;
-  --text-strong: #1f2933;
-  --text-subtle: #6B7280;
-  --border: #E5E7EB;
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('OpenDyslexic-Regular.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 
-  --g1: #A98CFF; /* 紫 */
-  --g2: #6EA8FF; /* 蓝 */
+:root {
+  --bg: #FFF8F0;
+  --panel: #FFFFFF;
+  --text-strong: #2d2d2d;
+  --text-subtle: #5a5a5a;
+  --border: #E5E0D8;
+
+  --g1: #A98CFF;
+  --g2: #6EA8FF;
 
   --radius-lg: 20px;
   --shadow-1: 0 2px 6px rgba(0,0,0,0.06);
   --shadow-2: 0 10px 20px rgba(17, 24, 39, 0.06);
+
+  --dyslexic-font: 'OpenDyslexic', 'Comic Sans MS', 'Trebuchet MS', sans-serif;
 }
 
 
 /* ================= RESET & BASE ================= */
 body {
   margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  font-family: var(--dyslexic-font);
   background: var(--bg);
   color: var(--text-strong);
+  letter-spacing: 0.05em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -32,7 +43,7 @@ body {
   padding: 24px;
   height: 100vh;
   box-sizing: border-box;
-  overflow: hidden; /* 防止内容撑开 */
+  overflow: hidden;
 }
 
 /* ================= CAMERA CARD ================= */
@@ -41,7 +52,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
- align-self: start;   /* 关键：不再被 Grid 竖直拉伸到底部 */
+  align-self: start;
 }
 .camera-inner {
   background:
@@ -49,24 +60,23 @@ body {
     linear-gradient(120deg, var(--g1), var(--g2)) border-box;
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
- padding: 16px;                /* 四周留白更舒服 */
+  padding: 16px;
   width: 100%;
- height: auto;                 /* 不再强行占满整列高度 */
+  height: auto;
   display: flex;
   justify-content: center;
   align-items: center;
   position: relative;
   box-shadow: var(--shadow-1);
 }
-/* 上半：视频容器（相对定位，挂载缩略图/错误提示） */
 .camera-feed {
   position: relative;
   display: grid;
   place-items: center;
   border-radius: 12px;
-  overflow: hidden;           /* 让右上角缩略图圆角跟随 */
+  overflow: hidden;
   background: #FAFBFF;
-  aspect-ratio: 16 / 9;       /* ✅ 由这里来稳定高度比例 */
+  aspect-ratio: 16 / 9;
 }
 .camera-feed { box-shadow: 0 1px 0 rgba(0,0,0,0.06); }
 .camera-feed::after { display:none; }
@@ -74,13 +84,12 @@ body {
 #video {
   width: 100%;
   height: 100%;
- object-fit: contain;     /* 显示完整画面，不裁切 */
- background: #FAFBFF;     /* 留白区域是柔和灰白，而不是黑色 */
+  object-fit: contain;
+  background: #FAFBFF;
   border-radius: 16px;
 }
 
 /* ================= OVERLAY BUTTONS ================= */
-/* 若还存在，不使用绝对定位了（可删除整个 .camera-overlay 相关 HTML/CSS） */
 .camera-overlay { position: static; bottom: auto; left: auto; }
 
 .btn {
@@ -90,6 +99,7 @@ body {
   border: 1px solid var(--border);
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--dyslexic-font);
   background: #fff;
   color: var(--text-strong);
   box-shadow: var(--shadow-1);
@@ -143,24 +153,24 @@ body {
   50%  { transform: translateX(-50%) scale(1.8); opacity: .8;  }
   100% { transform: translateX(-50%) scale(1);   opacity: .35; }
 }
-/* 相机内框：与外卡片对齐的次级边框容器 */
+
 .camera-frame {
   background: #fff;
   border-radius: 16px;
   padding: 12px 12px 10px;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto; /* 上：视频自适应；下：按钮自然高度 */
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 10px;
   width: 100%;
 }
+
 /* ================= RIGHT PANEL ================= */
 .right-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 0; /* 防止撑开 */
-  padding-top: 0; /* ✅ 新增，让标题和上方有空隙 */
-
+  min-height: 0;
+  padding-top: 0;
 }
 
 .panel-title {
@@ -169,21 +179,23 @@ body {
   margin-bottom: 12px;
 }
 
+/* ================= TEXT DISPLAY (Dyslexia-Friendly) ================= */
 .text-display {
   position: relative;
-  background: #fff;
+  background: #FFFDF7;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 16px 16px 20px;
-  font-size: 16px;
-  line-height: 1.65;
+  padding: 20px 22px 24px;
+  font-size: 19px;
+  line-height: 2.0;
+  letter-spacing: 0.08em;
+  word-spacing: 0.15em;
   box-shadow: var(--shadow-1);
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
 }
-/* 顶部 3px 渐变强调线 */
 .text-display::before {
   content: "";
   position: absolute;
@@ -191,20 +203,32 @@ body {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   background: linear-gradient(90deg, var(--g1), var(--g2));
 }
+
+/* Word spans — more clickable area for dyslexic users */
+.word {
+  padding: 2px 1px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+.word:hover {
+  background: rgba(169, 140, 255, 0.1);
+}
+
 /* ================= CHAT HISTORY ================= */
 .chat-history {
   background: #ffffff;
   border-radius: 16px;
   padding: 15px 6px 15px 15px;
-  display: flex;             /* ✅ 新增 flex */
-  flex-direction: column;    /* ✅ 垂直排列标题+消息区 */
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  min-height: 0;             /* ✅ 必须，否则 flex 子元素无法收缩 */
-  overflow: hidden;          /* ✅ 防止内容超出 */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-scroll {
-  flex: 1;                   /* 占满剩余空间 */
+  flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -214,36 +238,38 @@ body {
 
 /* ================= CHAT MESSAGES BASE ================= */
 .chat-message {
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 12px;
-  max-width: 58%;
-  font-size: 14px;
-  line-height: 1.4;
+  max-width: 62%;
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0.03em;
   word-wrap: break-word;
   animation: fadeIn 0.25s ease;
   transition: all 0.2s ease;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  margin: 0;   /* 保持0，让gap控制间距 */
+  margin: 0;
 }
 
-/* ================= AI BUBBLE (左) ================= */
+/* ================= AI BUBBLE (left) ================= */
 .chat-message.ai {
   align-self: flex-start;
   margin-right: auto;
+  margin-left: 0;
   background: linear-gradient(135deg, #d8b4fe 0%, #f3e8ff 100%);
   color: #1f2933;
   box-shadow:
-    inset 0 1px 2px rgba(255,255,255,0.3),  
-    0 3px 10px rgba(0,0,0,0.1);  
-    backdrop-filter: blur(4px); /* 毛玻璃轻微效果 */
-
+    inset 0 1px 2px rgba(255,255,255,0.3),
+    0 3px 10px rgba(0,0,0,0.1);
+  backdrop-filter: blur(4px);
 }
 
-/* ================= USER BUBBLE (右) ================= */
+/* ================= USER BUBBLE (right) ================= */
 .chat-message.user {
   align-self: flex-end;
   margin-left: auto;
-  background: rgba(75,85,99,0.2);             
+  margin-right: 0;
+  background: rgba(75,85,99,0.2);
   color: #1f2933;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -272,12 +298,34 @@ body {
   background: rgba(0,0,0,0.2);
   border-radius: 4px;
 }
+.text-display::-webkit-scrollbar {
+  width: 8px;
+}
+.text-display::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
 
 
 /* ================= ACTIVE WORD HIGHLIGHT ================= */
 .active-word {
   background: #ffd54f;
   border-radius: 4px;
+}
+
+/* ================= ACTIVE SENTENCE HIGHLIGHT ================= */
+.sentence {
+  display: inline;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+  border-radius: 6px;
+  padding: 2px 0;
+}
+
+.active-sentence {
+  background: linear-gradient(135deg, rgba(169, 140, 255, 0.15), rgba(110, 168, 255, 0.15));
+  box-shadow: 0 0 0 4px rgba(169, 140, 255, 0.08);
+  border-radius: 6px;
+  padding: 2px 4px;
 }
 
 /* ================= CONTROL BAR ================= */
@@ -300,6 +348,7 @@ body {
   color: var(--text-strong);
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--dyslexic-font);
   font-weight: 500;
   transition: background .2s ease, border-color .2s ease, transform .12s ease;
 }
@@ -307,16 +356,6 @@ body {
   background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
   border-color: #DAD5FF;
 }
-/* ================= SCROLLBARS ================= */
-.text-display::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
-  border-radius: 4px;
-}
-.chat-history::-webkit-scrollbar {
-  width: 8px;
-}
-
-.text-display::-webkit-scrollbar-thumb,
 
 .mode-wrapper {
   position: relative;
@@ -346,7 +385,7 @@ body {
   background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
 }
 
-/* ===== Snapshot 缩略图 ===== */
+/* ===== Snapshot thumbnail ===== */
 #snapshot-thumb {
   position: absolute;
   top: 10px;
@@ -357,7 +396,6 @@ body {
   display: none;
   z-index: 100;
   border-radius: 12px;
-
   border: 1px solid transparent;
   background:
     linear-gradient(#fff, #fff) padding-box,
@@ -378,7 +416,6 @@ body {
   justify-content: center;
   align-items: center;
   z-index: 999;
-
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -394,7 +431,6 @@ body {
   border-radius: 16px;
   width: 320px;
   text-align: center;
-
   transform: scale(0.9);
   transition: transform 0.3s ease;
 }
@@ -404,34 +440,29 @@ body {
 }
 
 
-/* 相对 camera-feed（视频区域内的右上角） */
 .inline-error {
-  position: absolute;   /* 相对 camera-inner */
+  position: absolute;
   top: 12px;
   right: 12px;
-
   background: rgba(239, 68, 68, 0.9);
   color: white;
   font-size: 12px;
   padding: 6px 10px;
   border-radius: 6px;
-
   display: none;
   z-index: 200;
-
   box-shadow: 0 4px 12px rgba(0,0,0,0.25);
   animation: fadeIn 0.2s ease;
 }
 
-/* 下半：按钮区（不覆盖视频），内置左右两侧 */
 .camera-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 2px 2px; /* 更轻盈 */
-  background: transparent;     /* 去底色 */
-  border: none;                 /* 去边框 */
+  padding: 4px 2px 2px;
+  background: transparent;
+  border: none;
   border-radius: 0;
 }
 
@@ -442,12 +473,208 @@ body {
   gap: 10px;
 }
 
-/* 用于与上面通用按钮样式融合（你已有 .btn 样式） */
 .camera-controls .btn {
   min-height: 40px;
   padding: 8px 12px;
   border-radius: 10px;
 }
 
-/* 兼容原来的 mode 下拉样式 */
 .camera-controls .mode-wrapper { position: relative; }
+
+/* ================= SMART ANALYSIS (Feature A) ================= */
+
+/* Difficult Word with Tooltip */
+.difficult-word {
+  position: relative;
+  text-decoration: underline;
+  text-decoration-color: #A98CFF;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
+  cursor: help;
+  color: #5b21b6;
+  font-weight: 600;
+  transition: background 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.difficult-word:hover {
+  background: rgba(169, 140, 255, 0.25);
+  border-radius: 4px;
+}
+
+/* Tooltip */
+.difficult-word .tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: 120%;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: #1f2933;
+  color: #fff;
+  text-align: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: all 0.2s ease;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.difficult-word .tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: #1f2933 transparent transparent transparent;
+}
+
+.difficult-word:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* View Toggles */
+.active-toggle {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF) !important;
+  border-color: #DAD5FF !important;
+  font-weight: bold;
+}
+
+/* Selection Popup */
+.selection-popup {
+  position: fixed;
+  display: none;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  padding: 4px;
+  z-index: 9999;
+  transform: translate(-50%, -10px);
+  animation: fadeInUp 0.2s ease forwards;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translate(-50%, 0); }
+  to { opacity: 1; transform: translate(-50%, -10px); }
+}
+
+.selection-popup button {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: var(--dyslexic-font);
+  font-weight: 500;
+  color: var(--text-strong);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.selection-popup button:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+  color: #5b21b6;
+}
+
+/* ================= STATUS INDICATOR ================= */
+#status-indicator {
+  position: fixed;
+  top: 15px;
+  right: 15px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+#status-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ccc;
+}
+.status-online { color: #166534; }
+.status-online::before { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.status-offline { color: #991b1b; }
+.status-offline::before { background: #ef4444; }
+.status-reconnecting { color: #92400e; }
+.status-reconnecting::before { background: #f59e0b; animation: lexi-blink 1s infinite; }
+@keyframes lexi-blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* ================= READING RULER ================= */
+#reading-ruler {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 44px;
+  background: rgba(169, 140, 255, 0.15);
+  border-top: 1px solid rgba(169, 140, 255, 0.3);
+  border-bottom: 1px solid rgba(169, 140, 255, 0.3);
+  pointer-events: none;
+  z-index: 10;
+  display: none; /* Hidden by default */
+  box-shadow: 0 0 10px rgba(169, 140, 255, 0.1);
+  border-radius: 4px;
+}
+
+#reading-ruler.active {
+  display: block;
+}
+
+/* ================= COLOR SWITCHER ================= */
+.color-switcher {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto; /* Push to the right */
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.color-dot:hover {
+  transform: scale(1.15);
+}
+
+.color-dot.active {
+  border-color: #A98CFF;
+  box-shadow: 0 0 0 2px rgba(169, 140, 255, 0.3);
+}

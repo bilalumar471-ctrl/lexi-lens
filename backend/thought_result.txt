@@ -1,0 +1,35 @@
+﻿python : C:\Users\nico
+l\lexi-lens-latest\bac
+kend\test_thought.py:1
+1: 
+ExperimentalWarning: 
+The live API is 
+experimental and may 
+change in future 
+versions.
+At line:1 char:1
++ python 
+test_thought.py 2>&1 
+| Out-File -FilePath 
+C:\Users\nicol\lexi- 
+...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (C:\Users\n   
+ icol\...uture ver    
+sions.:String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+  async with 
+c.aio.live.connect(
+Part: thought=True, has_audio=False, has_text=True
+  Text: **Greeting the User**
+
+I've processed the user's simple request and determined that a direct greetin
+Part: thought=None, has_audio=True, has_text=False
+Turn complete

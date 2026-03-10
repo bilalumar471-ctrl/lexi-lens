@@ -1,0 +1,115 @@
+﻿python : Traceback 
+(most recent call 
+last):
+At line:1 char:1
++ python 
+test_explain_ws.py 
+2>&1 | Out-File 
+-FilePath 
+C:\Users\nicol\le ...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (Traceback    
+ (most recent call    
+ last)::String) [    
+], RemoteExceptio    n
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+  File "C:\Users\nicol
+\lexi-lens-latest\back
+end\test_explain_ws.py
+", line 45, in 
+<module>
+    asyncio.run(test_e
+xplain())
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\asyncio\runners.py", 
+line 190, in run
+    return 
+runner.run(main)
+           
+^^^^^^^^^^^^^^^^
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\asyncio\runners.py", 
+line 118, in run
+    return self._loop.
+run_until_complete(tas
+k)
+           ^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
+^^
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\asyncio\base_events.p
+y", line 654, in 
+run_until_complete
+    return 
+future.result()
+           
+^^^^^^^^^^^^^^^
+  File "C:\Users\nicol
+\lexi-lens-latest\back
+end\test_explain_ws.py
+", line 7, in 
+test_explain
+    async with websock
+ets.connect(uri) as 
+ws:
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\site-packages\websock
+ets\asyncio\client.py"
+, line 487, in 
+__aenter__
+    return await self
+           ^^^^^^^^^^
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\site-packages\websock
+ets\asyncio\client.py"
+, line 446, in 
+__await_impl__
+    await self.connect
+ion.handshake(*self.ha
+ndshake_args)
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\site-packages\websock
+ets\asyncio\client.py"
+, line 104, in 
+handshake
+    raise self.protoco
+l.handshake_exc
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\site-packages\websock
+ets\client.py", line 
+340, in parse
+    self.process_respo
+nse(response)
+  File "C:\Users\nicol
+\AppData\Local\Program
+s\Python\Python311\Lib
+\site-packages\websock
+ets\client.py", line 
+151, in 
+process_response
+    raise InvalidStatu
+s(response)
+websockets.exceptions.
+InvalidStatus: server 
+rejected WebSocket 
+connection: HTTP 403

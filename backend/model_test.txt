@@ -1,0 +1,4 @@
+﻿OK: gemini-2.5-flash -> Hello, my friend.
+OK: gemini-2.5-flash-lite -> Hello, good day!
+OK: gemini-3-flash-preview -> Hello there, friend.
+OK: gemini-flash-latest -> Hello there, friend.

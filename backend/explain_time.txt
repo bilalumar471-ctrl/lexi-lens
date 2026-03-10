@@ -1,0 +1,26 @@
+﻿python :   File 
+"<string>", line 7
+At line:1 char:1
++ python -c "
++ ~~~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (  File "<s   
+ tring>", line 7:S    
+tring) [], Remote    
+Exception
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+    prompt = 'Explain 
+simply in 10 words: " 
+Artificial 
+intelligence is a 
+branch of computer 
+science.\'
+             ^
+SyntaxError: 
+unterminated string 
+literal (detected at 
+line 7)

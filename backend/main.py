@@ -18,12 +18,14 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from config import get_settings, setup_logging
 from agent.lexi import LexiAgent
+from agent.analyze import analyze_text, explain_selection, analyze_notes
 from processing.documents import router as documents_router
 from security import (
     create_session,
@@ -88,6 +90,36 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Text Analysis (Feature A)
+# ---------------------------------------------------------------------------
+
+class AnalyzeRequest(BaseModel):
+    text: str
+
+class ExplainSelectionRequest(BaseModel):
+    context: str
+    selection: str
+
+@app.post("/api/analyze-text")
+async def api_analyze_text(req: AnalyzeRequest):
+    """Analyze text to find difficult words and definitions."""
+    result = analyze_text(req.text)
+    return result
+
+@app.post("/api/explain-selection")
+async def api_explain_selection(req: ExplainSelectionRequest):
+    """Explain a specific user selection."""
+    explanation = explain_selection(context=req.context, selection=req.selection)
+    return {"explanation": explanation}
+
+@app.post("/api/analyze-notes")
+async def api_analyze_notes(req: AnalyzeRequest):
+    """Summarize text into bullet point notes."""
+    result = analyze_notes(req.text)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Session creation
 # ---------------------------------------------------------------------------
 
@@ -145,8 +177,44 @@ async def ws_session(websocket: WebSocket):
     # --- Step 2: main loop ---
     agent = LexiAgent()
 
+    async def heartbeat():
+        """Send periodic pings to keep the connection alive."""
+        try:
+            while True:
+                await asyncio.sleep(30)
+                await websocket.send_json({"type": "ping"})
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"Heartbeat failed (likely closed): {e}")
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+
     try:
-        await agent.connect()
+        # Initialize agent connection with retries for 503 errors
+        max_retries = 3
+        connected = False
+        for attempt in range(max_retries):
+            try:
+                await agent.connect()
+                connected = True
+                await websocket.send_json({"type": "ready"})
+                break
+            except Exception as e:
+                err_str = str(e).upper()
+                if ("503" in err_str or "CAPACITY_EXHAUSTED" in err_str) and attempt < max_retries - 1:
+                    logger.warning(f"Connection attempt {attempt+1} failed (503). Retrying in 7s (per server recommendation)...")
+                    await asyncio.sleep(7)
+                    continue
+                
+                logger.error(f"Agent connection failed: {e}")
+                error_msg = "Capacity Limit" if ("503" in err_str or "CAPACITY_EXHAUSTED" in err_str) else "Connection Failed"
+                try:
+                    await websocket.send_json({"type": "error", "message": error_msg})
+                    await asyncio.sleep(0.5)
+                except: pass
+                await websocket.close()
+                return
 
         async def _forward_client_audio():
             """Read frames from the client; dispatch JSON or binary."""
@@ -172,10 +240,24 @@ async def ws_session(websocket: WebSocket):
 
                         # Route by type (extend as needed)
                         msg_type = msg.get("type")
+                        logger.info(f"==> RECEIVED WS COMMAND: {msg_type}")
                         if msg_type == "mode":
                             logger.info("Mode switch: %s", msg.get("mode"))
                         elif msg_type == "text":
                             logger.info("Text message: %s", msg.get("message"))
+                        elif msg_type == "explain":
+                            text_to_explain = msg.get("text", "")
+                            logger.info("Explain requested for text length: %d", len(text_to_explain))
+                            await agent.explain(text_to_explain, websocket)
+                        elif msg_type == "explain_selection":
+                            context = msg.get("context", "")
+                            selection = msg.get("selection", "")
+                            logger.info("Explain selection requested: %s", selection)
+                            await agent.explain_selection(context, selection, websocket)
+                        elif msg_type == "set_context":
+                            context_text = msg.get("text", "")
+                            logger.info("Setting context text (length: %d)", len(context_text))
+                            await agent.set_context(context_text)
 
             except WebSocketDisconnect:
                 logger.info("Client disconnected (send path)")
@@ -183,7 +265,8 @@ async def ws_session(websocket: WebSocket):
         async def _forward_model_audio():
             """Read audio responses from the model and push to the client."""
             try:
-                async for chunk in agent.receive_audio():
+                # Pass websocket so agent can also send transcripts/highlights
+                async for chunk in agent.receive_audio(websocket):
                     await websocket.send_bytes(chunk)
             except WebSocketDisconnect:
                 logger.info("Client disconnected (receive path)")
@@ -198,6 +281,7 @@ async def ws_session(websocket: WebSocket):
     except Exception:
         logger.exception("Unexpected error in WebSocket session")
     finally:
+        heartbeat_task.cancel()
         await agent.close()
         logger.info("WebSocket session cleaned up")
 
