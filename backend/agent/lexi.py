@@ -29,6 +29,7 @@ You are ALWAYS Lexi, a kind reading companion for people who need help reading.
 You are connected to a voice synthesizer — EVERYTHING YOU SAY IS SPOKEN ALOUD.
 The user has a "Text Display Area" on their screen showing text they uploaded (a book, article, or document).
 When the user asks about "the text" or "what it says", refer to the content they uploaded.
+Crucially: If the user asks a question about the text (e.g. "who is the author?", "what is this book about?") and the answer is NOT in the text, you MUST use your own general AI knowledge to answer them as best as you can. Do NOT just say "it's not in the text".
 Rules:
 - Speak in maximum TWO short, simple sentences.
 - NEVER say "I have...", "I am...", "I think...", or describe your process.
@@ -329,9 +330,10 @@ class LexiAgent:
             return
         try:
             context_msg = (
-                f"The user just uploaded text to the Text Display Area. Here is the content:\n\n"
+                f"IGNORE ALL PREVIOUS DOCUMENTS AND FILES I HAVE UPLOADED. "
+                f"The user just uploaded a NEW text to the Text Display Area. Here is the NEW content:\n\n"
                 f"{text[:3000]}\n\n"
-                f"Remember this content. The user may ask you to read it, explain parts of it, or ask questions about it."
+                f"Remember this new content exclusively. The user may ask you to read it, explain parts of it, or ask questions about it."
             )
             await self._session.send(input=context_msg, end_of_turn=True)
             # Wait briefly for acknowledgment

@@ -24,6 +24,8 @@ let isPlaying = false;
 // Feature B: Web Speech API STT
 let speechRecognizer = null;
 let currentSpeechBubble = null;
+let currentAiSpeechBubble = null;
+let lastAiSpeechTime = 0; // Timestamp to track when AI last spoke to handle echo tail
 
 let mockWords = ["This","is","a","mock","text","for","highlighting","test"];
 let currentWord = 0;
@@ -107,7 +109,7 @@ function initDyslexiaFeatures() {
           ruler.style.display = "block";
           // relative to the container
           const yPos = e.clientY - containerRect.top + textDisplay.scrollTop;
-          ruler.style.top = `${yPos - 20}px`; // Center the 44px high ruler
+          ruler.style.top = `${yPos - 25}px`; // Center the new 50px high ruler
         } else {
           ruler.style.display = "none";
         }
@@ -230,7 +232,7 @@ function takeSnapshot(){
 
       if(data.full_text){
         mockWords = data.full_text.split(" ");
-        renderTextWithHighlight(data.full_text);
+        renderTextWithHighlight(data.full_text, true);
       }
 
       addChat("Snapshot processed.","ai");
@@ -418,22 +420,26 @@ function initSpeechRecognition() {
     }
 
     if (finalTranscript || interimTranscript) {
-      // If AI audio is playing, speech recognition picks up the AI's voice
-      // Tag those as 'ai' messages (purple, left side)
-      const sender = isPlaying ? "ai" : "user";
+      // Lexi's audio playing through speakers is picked up by the mic here.
+      // We use this as a free, zero-latency "AI Subtitle" feature since TEXT modality broke the backend.
+      // We extend the AI's "ownership" of the microphone for 1200ms after it stops playing
+      // to absorb any physical room echo/reverb that hits the mic late.
+      const now = Date.now();
+      const inEchoTail = (now - lastAiSpeechTime < 1200);
+      const isAiTurn = isLexiTalking || isPlaying || inEchoTail;
       
-      if (!currentSpeechBubble) {
-        currentSpeechBubble = addChat("", sender);
-        currentSpeechBubble.style.opacity = "0.7";
-        currentSpeechBubble._sender = sender;
-      }
+      const sender = isAiTurn ? "ai" : "user";
       
-      // If sender changed mid-bubble (e.g. AI stopped playing), finalize and start new
-      if (currentSpeechBubble._sender !== sender) {
-        currentSpeechBubble.style.opacity = "1";
-        currentSpeechBubble = addChat("", sender);
-        currentSpeechBubble.style.opacity = "0.7";
+      // If we don't have a bubble, or the sender switched
+      if (!currentSpeechBubble || currentSpeechBubble._sender !== sender) {
+        if (currentSpeechBubble) {
+           currentSpeechBubble.style.opacity = "1";
+        }
+        currentSpeechBubble = document.createElement("div");
+        currentSpeechBubble.className = `chat-message ${sender}`;
         currentSpeechBubble._sender = sender;
+        document.getElementById("chat-scroll").appendChild(currentSpeechBubble);
+        currentSpeechBubble.style.opacity = "0.7";
       }
       
       currentSpeechBubble.textContent = finalTranscript || interimTranscript;
@@ -551,37 +557,31 @@ async function analyzeText(text) {
     const data = await res.json();
     
     if (data.difficult_words && data.difficult_words.length > 0) {
-      // Work on a temporary fragment built from saved originalHTML
-      // This avoids corrupting the display if the user switched to notes view
-      const tempDiv = document.createElement("div");
-      tempDiv.innerHTML = originalHTML;
+      // Instead of relying on fragile event listeners that get destroyed by innerHTML assignments,
+      // we store the definitions globally and use Event Delegation on document.body.
+      window.difficultDictMap = {};
       
       data.difficult_words.forEach(item => {
         const word = item.word;
         const explanation = item.explanation;
-        
-        const wordSpans = tempDiv.querySelectorAll(".word");
-        wordSpans.forEach(span => {
-          const cleanSpanText = span.textContent.trim().replace(/[.,!?;:]/g, "");
-          const cleanTargetText = word.trim().replace(/[.,!?;:]/g, "");
-          
-          if (cleanSpanText.toLowerCase() === cleanTargetText.toLowerCase()) {
+        window.difficultDictMap[word.trim().toLowerCase()] = explanation;
+      });
+
+      const liveContainer = document.getElementById("reading-text");
+      if(!liveContainer) return;
+
+      const liveSpans = liveContainer.querySelectorAll(".word");
+      liveSpans.forEach(span => {
+         const cleanSpanText = span.textContent.trim().replace(/[.,!?;:]/g, "").toLowerCase();
+         if (window.difficultDictMap[cleanSpanText] && !span.classList.contains("difficult-word")) {
              span.classList.add("difficult-word");
-             const tooltip = document.createElement("div");
-             tooltip.className = "tooltip";
-             tooltip.textContent = explanation;
-             span.appendChild(tooltip);
-          }
-        });
+             // The explanation is bound purely through CSS class + global dictionary lookup now
+             span.setAttribute("data-word", cleanSpanText);
+         }
       });
       
-      // Always update originalHTML from the temp fragment
-      originalHTML = tempDiv.innerHTML;
-      
-      // If user is currently viewing original, also update the live DOM
-      if(currentView === "original") {
-        document.getElementById("reading-text").innerHTML = originalHTML;
-      }
+      // Save the LIVE innerHTML (which now includes the classes) 
+      originalHTML = liveContainer.innerHTML;
       
       requestAnimationFrame(() => {
         addChat("💡 Difficult words are highlighted in the Original Text.","ai");
@@ -590,6 +590,67 @@ async function analyzeText(text) {
   } catch(e) {
     console.error("Analysis failed:", e);
   }
+}
+
+// Global Event Delegation for Tooltips
+let globalTooltip = null;
+
+document.addEventListener("mouseover", (e) => {
+    const target = e.target.closest(".difficult-word");
+    if (!target) return;
+    
+    const wordKey = target.getAttribute("data-word");
+    if (!wordKey || !window.difficultDictMap || !window.difficultDictMap[wordKey]) return;
+    
+    if (!globalTooltip) {
+        globalTooltip = document.createElement("div");
+        globalTooltip.className = "tooltip";
+        document.body.appendChild(globalTooltip);
+    }
+    
+    globalTooltip.textContent = window.difficultDictMap[wordKey];
+    globalTooltip.style.visibility = "visible";
+    globalTooltip.style.opacity = "1";
+    
+    const rect = target.getBoundingClientRect();
+    let leftPos = rect.left + (rect.width / 2);
+    globalTooltip.style.top = (rect.bottom + 8) + 'px';
+    globalTooltip.style.left = leftPos + 'px';
+    globalTooltip.style.transform = 'translateX(-50%)';
+    globalTooltip.style.setProperty('--arrow-left', '50%');
+    globalTooltip.style.setProperty('--arrow-margin', '-6px');
+    
+    requestAnimationFrame(() => {
+        const tRect = globalTooltip.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        if (tRect.right > viewportWidth - 20) {
+            globalTooltip.style.transform = 'none';
+            globalTooltip.style.left = 'auto';
+            globalTooltip.style.right = '20px';
+            const tRectNew = globalTooltip.getBoundingClientRect();
+            const arrowOffset = (rect.left + rect.width / 2) - tRectNew.left;
+            globalTooltip.style.setProperty('--arrow-left', arrowOffset + 'px');
+            globalTooltip.style.setProperty('--arrow-margin', '-6px'); 
+        }
+    });
+});
+
+document.addEventListener("mouseout", (e) => {
+    const target = e.target.closest(".difficult-word");
+    if (!target && globalTooltip) {
+        globalTooltip.style.visibility = "hidden";
+        globalTooltip.style.opacity = "0";
+    }
+});
+
+const textContainerDisplay = document.querySelector('.text-display');
+if (textContainerDisplay) {
+    textContainerDisplay.addEventListener('scroll', () => {
+        if (globalTooltip) {
+            globalTooltip.style.visibility = 'hidden';
+            globalTooltip.style.opacity = '0';
+        }
+    }, {passive: true});
 }
 
 async function generateNotes(text) {
@@ -678,23 +739,26 @@ async function initWebSocket(){
   };
 
   ws.onmessage = async(event) => {
-    if(typeof event.data === "string"){
+      if(typeof event.data === "string"){
       const msg = JSON.parse(event.data);
       if(msg.type==="ping") return; // Silent heartbeat
       if(msg.type==="ready") {
           updateStatus("online", "Lexi Ready");
           return;
       }
-      if(msg.type==="transcript") {
-          console.log("[WS] AI Transcript received:", msg.text);
-          addChat(msg.text,"ai");
-      }
+      if(msg.type==="highlight") highlightWord(msg.word_index);
       if(msg.type==="highlight") highlightWord(msg.word_index);
       if(msg.type==="talking") {
-          isLexiTalking = msg.value;
-          // When AI stops talking, we can clear any pending user speech bubbles or state
-          if (!isLexiTalking) {
-              currentSpeechBubble = null;
+          if (msg.value === true) {
+              isLexiTalking = true;
+          } else {
+              isLexiTalking = false;
+              lastAiSpeechTime = Date.now();
+              // When AI stops talking, finalize the AI speech bubble so the user gets a fresh one
+              if (currentSpeechBubble && currentSpeechBubble._sender === "ai") {
+                  currentSpeechBubble.style.opacity = "1";
+                  currentSpeechBubble = null;
+              }
           }
       }
       if(msg.type==="error") {
@@ -763,7 +827,8 @@ async function playAudioChunk(buffer){
 
 async function drainQueue(){
   if(audioQueue.length===0){
-    isPlaying=false;
+    isPlaying = false;
+    lastAiSpeechTime = Date.now();
     return;
   }
   isPlaying=true;

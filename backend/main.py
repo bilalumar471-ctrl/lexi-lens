@@ -101,19 +101,19 @@ class ExplainSelectionRequest(BaseModel):
     selection: str
 
 @app.post("/api/analyze-text")
-async def api_analyze_text(req: AnalyzeRequest):
+def api_analyze_text(req: AnalyzeRequest):
     """Analyze text to find difficult words and definitions."""
     result = analyze_text(req.text)
     return result
 
 @app.post("/api/explain-selection")
-async def api_explain_selection(req: ExplainSelectionRequest):
+def api_explain_selection(req: ExplainSelectionRequest):
     """Explain a specific user selection."""
     explanation = explain_selection(context=req.context, selection=req.selection)
     return {"explanation": explanation}
 
 @app.post("/api/analyze-notes")
-async def api_analyze_notes(req: AnalyzeRequest):
+def api_analyze_notes(req: AnalyzeRequest):
     """Summarize text into bullet point notes."""
     result = analyze_notes(req.text)
     return result

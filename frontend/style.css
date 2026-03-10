@@ -210,6 +210,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden; /* Prevent horizontal scroll from overflowing tooltips */
 }
 .text-display::before {
   content: "";
@@ -225,6 +226,7 @@ body {
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.15s ease;
+  position: relative; /* Anchor for tooltips */
 }
 .word:hover {
   background: rgba(169, 140, 255, 0.1);
@@ -600,43 +602,45 @@ body {
 }
 
 /* Tooltip */
-.difficult-word .tooltip {
+.difficult-word {
+  /* Removed position: relative from here so it doesn't affect anything, wait it's not needed for fixed tooltips anyway */
+}
+.tooltip {
   visibility: hidden;
   opacity: 0;
-  position: absolute;
-  bottom: 120%;
-  left: 50%;
-  transform: translateX(-50%) translateY(10px);
+  position: fixed; /* Must be fixed since we use getBoundingClientRect values */
+  margin-top: 8px; /* Adds space for the arrow */
   background: #1f2933;
   color: #fff;
-  text-align: center;
+  text-align: left;
   padding: 10px 14px;
   border-radius: 10px;
   font-size: 14px;
   font-weight: 400;
   line-height: 1.5;
-  white-space: nowrap;
+  white-space: normal; /* Allow wrapping */
+  width: max-content;
+  max-width: 280px; /* Force wrap if too long */
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   transition: all 0.2s ease;
   z-index: 1000;
   pointer-events: none;
 }
 
-.difficult-word .tooltip::after {
+.tooltip::after {
   content: "";
   position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -6px;
+  bottom: 100%; /* Arrow points up from the top edge */
+  left: var(--arrow-left, 50%); 
+  margin-left: var(--arrow-margin, -6px);
   border-width: 6px;
   border-style: solid;
-  border-color: #1f2933 transparent transparent transparent;
+  border-color: transparent transparent #1f2933 transparent;
 }
 
 .difficult-word:hover .tooltip {
   visibility: visible;
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
 }
 
 /* View Toggles */
@@ -725,20 +729,22 @@ body {
   100% { opacity: 1; }
 }
 
-/* ================= READING RULER ================= */
+/* ================= READING RULER (SCREEN CURTAIN) ================= */
 #reading-ruler {
   position: absolute;
   left: 0;
   right: 0;
-  height: 44px;
-  background: rgba(169, 140, 255, 0.15);
-  border-top: 1px solid rgba(169, 140, 255, 0.3);
-  border-bottom: 1px solid rgba(169, 140, 255, 0.3);
+  height: 50px;
+  /* Kindle/Screen-Curtain effect: 
+     Instead of highlighting the line, we darken *everything else* using a massive box-shadow */
+  background: transparent;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); 
+  border-top: 2px solid rgba(169, 140, 255, 0.8);
+  border-bottom: 2px solid rgba(169, 140, 255, 0.8);
   pointer-events: none;
   z-index: 10;
   display: none; /* Hidden by default */
-  box-shadow: 0 0 10px rgba(169, 140, 255, 0.1);
-  border-radius: 4px;
+  /* Remove border radius so the shadow covers edge to edge */
 }
 
 #reading-ruler.active {
