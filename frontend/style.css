@@ -37,8 +37,7 @@ body {
 
 /* ================= MAIN LAYOUT ================= */
 .main-layout {
-  display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  display: flex;
   gap: 24px;
   padding: 24px;
   height: 100vh;
@@ -46,29 +45,49 @@ body {
   overflow: hidden;
 }
 
-/* ================= CAMERA CARD ================= */
-.camera-card {
-  position: relative;
+/* ================= LEFT PANEL (Resizable) ================= */
+.left-panel {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  align-self: start;
+  flex-direction: column;
+  width: 35%; /* Default width */
+  min-width: 250px; /* Prevent shrinking too much */
+  max-width: 60%; /* Prevent expanding too much */
+  resize: horizontal; /* Enables native dragging on the right edge */
+  overflow: auto; /* Required for resize to work */
+  padding-right: 12px; /* Breathing room for the drag handle */
 }
-.camera-inner {
-  background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(120deg, var(--g1), var(--g2)) border-box;
-  border: 1px solid transparent;
+
+/* ================= RIGHT PANEL ================= */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* Takes up remaining space */
+  min-width: 0;
+  height: 100%;
+}
+
+/* ================= UNIFIED CARDS ================= */
+.unified-card {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
   border-radius: var(--radius-lg);
-  padding: 16px;
-  width: 100%;
-  height: auto;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  position: relative;
   box-shadow: var(--shadow-1);
+  height: 100%;
+  overflow: hidden;
 }
+
+    
+
+.right-unified-card {
+  background: #FFFDF7; /* Warmer background for reading */
+}
+
+/* ================= CAMERA CARD (Now just content) ================= */
+.unified-camera {
+  padding: 16px 16px 4px 16px; /* Top, Right, Bottom, Left. Bottom is smaller because chat is below it */
+}
+
 .camera-feed {
   position: relative;
   display: grid;
@@ -182,15 +201,11 @@ body {
 /* ================= TEXT DISPLAY (Dyslexia-Friendly) ================= */
 .text-display {
   position: relative;
-  background: #FFFDF7;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   padding: 20px 22px 24px;
   font-size: 19px;
   line-height: 2.0;
   letter-spacing: 0.08em;
   word-spacing: 0.15em;
-  box-shadow: var(--shadow-1);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -215,16 +230,21 @@ body {
   background: rgba(169, 140, 255, 0.1);
 }
 
+/* Bionic Reading bolding */
+.word b {
+  font-weight: 700;
+  color: #111; /* Slightly darker than normal text for better contrast */
+}
+
 /* ================= CHAT HISTORY ================= */
 .chat-history {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 15px 6px 15px 15px;
+  padding: 15px 15px 15px 15px;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  border-top: 1px solid rgba(0,0,0,0.05); /* Separator inside left card */
 }
 
 .chat-scroll {
@@ -316,7 +336,7 @@ body {
 /* ================= ACTIVE SENTENCE HIGHLIGHT ================= */
 .sentence {
   display: inline;
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
   border-radius: 6px;
   padding: 2px 0;
 }
@@ -328,16 +348,86 @@ body {
   padding: 2px 4px;
 }
 
+/* ================= FOCUS MODE (Dyslexia/ADHD) ================= */
+.text-display.focus-mode-active .sentence {
+  opacity: 0.25; /* Dim all sentences by default */
+  filter: blur(0.5px); /* Slight blur reduces cognitive distraction */
+}
+
+/* Brighten the active sentence, or whatever sentence the user hovers over */
+.text-display.focus-mode-active .sentence.active-sentence,
+.text-display.focus-mode-active .sentence:hover {
+  opacity: 1 !important;
+  filter: blur(0) !important;
+  transform: scale(1.02);
+  display: inline-block; /* Required for transform scale to work on text */
+  margin: 0 4px; /* Compensate for the scale so text doesn't overlap violently */
+}
+
 /* ================= CONTROL BAR ================= */
+.unified-toolbar {
+  position: relative; /* Anchor for the sliding panel */
+}
+
 .control-bar {
   display: flex;
   gap: 10px;
   margin-top: auto;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 10px;
-  box-shadow: var(--shadow-1);
+  padding: 16px 20px;
+  border-top: 1px solid rgba(0,0,0,0.05); /* Separator from text area */
+  background: #FFFDF7;
+  z-index: 10;
+}
+
+/* ================= SLIDING TOOLS PANEL ================= */
+.tools-panel {
+  display: flex;
+  gap: 10px;
+  position: absolute;
+  bottom: 100%; /* Sits exactly above the control bar */
+  left: 0;
+  width: 100%;
+  padding: 16px 20px;
+  background: #ffffff;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
+  border-radius: 16px 16px 0 0;
+  box-sizing: border-box;
+  
+  /* Sliding Animation */
+  transform: translateY(10px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              visibility 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 5;
+}
+
+.tools-panel.active {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.btn-primary {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, #a855f7 0%, #8b5cf6 100%);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--dyslexic-font);
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.3);
 }
 
 .btn-outline {
@@ -355,6 +445,12 @@ body {
 .btn-outline:hover {
   background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
   border-color: #DAD5FF;
+}
+
+.btn-outline.active-toggle {
+  background: #F2EDFF;
+  border-color: #DAD5FF;
+  color: #6d28d9;
 }
 
 .mode-wrapper {
@@ -460,7 +556,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 2px 2px;
+  padding: 12px 16px 16px; /* Added breathing room as per user request */
   background: transparent;
   border: none;
   border-radius: 0;

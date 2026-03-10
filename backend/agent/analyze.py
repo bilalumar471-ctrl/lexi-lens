@@ -126,6 +126,9 @@ def explain_selection(context: str, selection: str) -> str:
         return "Sorry, I had trouble thinking of an explanation just now."
 
 
+import functools
+
+@functools.lru_cache(maxsize=10)
 def analyze_notes(text: str) -> dict:
     """Generate simple bullet-point notes for the provided text."""
     settings = get_settings()

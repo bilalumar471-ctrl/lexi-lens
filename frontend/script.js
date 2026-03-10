@@ -39,6 +39,8 @@ let reconnectAttempts = 0;
 let reconnectTimeout = null;
 let currentView = "original"; // Track which view is active: "original" or "notes"
 let isRulerActive = false; // Track reading ruler state
+let isBionicActive = false; // Track Bionic reading mode
+let audioPlaybackRate = 1.0; // Dyslexia Audio Speed setting
 
 // ================= INIT =================
 window.addEventListener("DOMContentLoaded", () => {
@@ -92,13 +94,25 @@ function initDyslexiaFeatures() {
       rulerToggle.classList.toggle("active-toggle", isRulerActive);
     });
     
-    // Ruler follows mouse Y position inside text display
-    textDisplay.addEventListener("mousemove", (e) => {
-      if (isRulerActive) {
-        // Position ruler centered on mouse Y, relative to the container
+    // Ruler follows mouse Y position
+    document.addEventListener("mousemove", (e) => {
+      if (isRulerActive && ruler) {
+        // Position ruler centered on mouse Y, visually following the cursor everywhere
+        // but clamped roughly to the text display area
         const containerRect = textDisplay.getBoundingClientRect();
-        const yPos = e.clientY - containerRect.top + textDisplay.scrollTop;
-        ruler.style.top = `${yPos - 20}px`; // Center the 40px high ruler
+        
+        // Only show ruler if mouse is roughly inside the text display area
+        if (e.clientX >= containerRect.left && e.clientX <= containerRect.right &&
+            e.clientY >= containerRect.top && e.clientY <= containerRect.bottom) {
+          ruler.style.display = "block";
+          // relative to the container
+          const yPos = e.clientY - containerRect.top + textDisplay.scrollTop;
+          ruler.style.top = `${yPos - 20}px`; // Center the 44px high ruler
+        } else {
+          ruler.style.display = "none";
+        }
+      } else if (ruler) {
+          ruler.style.display = "none";
       }
     });
   }
@@ -122,6 +136,48 @@ function initDyslexiaFeatures() {
       e.target.classList.add("active");
     });
   });
+
+  // Reading Tools Panel Toggle
+  const toolsBtn = document.getElementById("reading-tools-btn");
+  const toolsPanel = document.getElementById("reading-tools-panel");
+  
+  if (toolsBtn && toolsPanel) {
+    toolsBtn.addEventListener("click", () => {
+      toolsPanel.classList.toggle("active");
+      toolsBtn.classList.toggle("active-toggle");
+    });
+  }
+
+  // Bionic Reading Toggle
+  const bionicToggle = document.getElementById("bionic-toggle");
+  if (bionicToggle) {
+    bionicToggle.addEventListener("click", () => {
+      isBionicActive = !isBionicActive;
+      bionicToggle.classList.toggle("active-toggle", isBionicActive);
+      
+      // Re-render the current text to apply or remove the bionic formatting
+      if (currentView === "original" && rawText) {
+        renderTextWithHighlight(rawText, false); // Keep current raw text
+      }
+    });
+  }
+
+  // Focus Mode Toggle
+  const focusModeToggle = document.getElementById("focus-mode-toggle");
+  if (focusModeToggle && textDisplay) {
+    focusModeToggle.addEventListener("click", () => {
+      textDisplay.classList.toggle("focus-mode-active");
+      focusModeToggle.classList.toggle("active-toggle");
+    });
+  }
+
+  // Voice Speed Selector
+  const speedSelect = document.getElementById("voice-speed-select");
+  if (speedSelect) {
+    speedSelect.addEventListener("change", (e) => {
+      audioPlaybackRate = parseFloat(e.target.value);
+    });
+  }
 }
 
 // ================= CAMERA =================
@@ -429,6 +485,15 @@ function renderTextWithHighlight(text, isRealContent = false){
       wordSpan.className = "word";
       wordSpan.dataset.index = wIdx;
       wordSpan.onclick = () => highlightWord(wIdx);
+      
+      // Inject Bionic Reading spans if active
+      if (isBionicActive && w.length > 1) {
+        const mid = Math.ceil(w.length / 2);
+        wordSpan.innerHTML = `<b>${w.substring(0, mid)}</b>${w.substring(mid)} `;
+      } else {
+        wordSpan.textContent = w + " ";
+      }
+      
       sentenceSpan.appendChild(wordSpan);
     });
 
@@ -451,8 +516,14 @@ function renderTextWithHighlight(text, isRealContent = false){
   
   const btnOriginal = document.getElementById("view-original-btn");
   const btnAnalyzed = document.getElementById("view-analyzed-btn");
-  if(btnOriginal) btnOriginal.classList.add("active-toggle");
-  if(btnAnalyzed) btnAnalyzed.classList.remove("active-toggle");
+  if(btnOriginal) {
+    btnOriginal.classList.add("active-toggle");
+  }
+  if(btnAnalyzed) {
+    btnAnalyzed.classList.remove("active-toggle");
+    // Reset text inside button just in case
+    btnAnalyzed.innerText = "📝 Summary Notes";
+  }
 
   // Only trigger analysis for real uploaded content
   if(isRealContent) {
@@ -522,6 +593,12 @@ async function analyzeText(text) {
 }
 
 async function generateNotes(text) {
+  const btnAnalyzed = document.getElementById("view-analyzed-btn");
+  if (btnAnalyzed) {
+    btnAnalyzed.innerText = "⏳ Generating Notes...";
+    btnAnalyzed.style.opacity = "0.7";
+  }
+
   try {
     const res = await fetch(`${CONFIG.API_URL}/api/analyze-notes`, {
       method: "POST",
@@ -537,13 +614,26 @@ async function generateNotes(text) {
       });
       notesHtmlContent += `</ul></div>`;
       
+      
       analyzedHTML = notesHtmlContent;
       requestAnimationFrame(() => {
+        if (btnAnalyzed) {
+          btnAnalyzed.innerText = "📝 Summary Notes";
+          btnAnalyzed.style.opacity = "1";
+        }
         addChat("📝 Summary Notes ready! Click the 'Summary Notes' button.","ai");
       });
+    } else {
+      // Fallback if empty array returned
+      if (btnAnalyzed) {
+        btnAnalyzed.innerText = "⚠️ generation failed";
+      }
     }
   } catch(e) {
     console.error("Notes generation failed:", e);
+    if (btnAnalyzed) {
+      btnAnalyzed.innerText = "⚠️ error";
+    }
   }
 }
 
@@ -687,6 +777,7 @@ async function drainQueue(){
     const audioBuffer = await playbackContext.decodeAudioData(buf.slice(0));
     const source = playbackContext.createBufferSource();
     source.buffer = audioBuffer;
+    source.playbackRate.value = audioPlaybackRate; // Apply custom speed
     source.connect(playbackContext.destination);
     source.onended = drainQueue;
     source.start();
@@ -698,6 +789,7 @@ async function drainQueue(){
     audioBuffer.copyToChannel(float,0);
     const source = playbackContext.createBufferSource();
     source.buffer = audioBuffer;
+    source.playbackRate.value = audioPlaybackRate; // Apply custom speed
     source.connect(playbackContext.destination);
     source.onended = drainQueue;
     source.start();
@@ -840,7 +932,7 @@ function setupEvents(){
 
   document.getElementById("view-analyzed-btn")?.addEventListener("click", (e) => {
     if(!analyzedHTML) {
-      addChat("Summary Notes are still being generated...", "ai");
+      // The button text already says "Generating notes...", so we don't need to spam the chat log
       return; 
     }
     document.getElementById("reading-text").innerHTML = analyzedHTML;
