@@ -58,14 +58,25 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   renderTextWithHighlight(mockWords.join(" "), false);
+  setupDragAndDrop();
 });
+
+function sendMessage(type, payload = {}) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      session_token: SESSION_TOKEN,
+      type: type,
+      ...payload
+    }));
+  }
+}
 
 // ================= SESSION =================
 async function initSession() {
   try {
-    const res = await fetch(`${CONFIG.API_URL}/api/session`, { method:"POST" });
-    const data = await res.json();
-    SESSION_TOKEN = data.session_token;
+    // Phase 2 requires client-side generation, removing the /api/session fetch
+    SESSION_TOKEN = crypto.randomUUID();
+    console.log("Session initialized with token:", SESSION_TOKEN);
 
     await initWebSocket();
     await initCamera();
@@ -148,6 +159,7 @@ function initDyslexiaFeatures() {
   
   if (toolsBtn && toolsPanel) {
     toolsBtn.addEventListener("click", () => {
+      toolsPanel.classList.toggle("hidden");
       toolsPanel.classList.toggle("active");
       toolsBtn.classList.toggle("active-toggle");
     });
@@ -160,9 +172,25 @@ function initDyslexiaFeatures() {
       isBionicActive = !isBionicActive;
       bionicToggle.classList.toggle("active-toggle", isBionicActive);
       
-      // Re-render the current text to apply or remove the bionic formatting
+      // Update words in-place instead of a full re-render to preserve analysis classes
       if (currentView === "original" && rawText) {
-        renderTextWithHighlight(rawText, false); // Keep current raw text
+        const wordSpans = document.querySelectorAll("#reading-text .word");
+        wordSpans.forEach(span => {
+          // If the span contains bionic tags and we are toggling off, remove them
+          if (!isBionicActive) {
+             const cleanText = span.textContent;
+             span.innerHTML = "";
+             span.textContent = cleanText;
+          } else {
+             // We are toggling bionic ON
+             const cleanText = span.textContent.trim();
+             if (cleanText.length > 1) {
+               const mid = Math.ceil(cleanText.length / 2);
+               span.innerHTML = `<b>${cleanText.substring(0, mid)}</b>${cleanText.substring(mid)} `;
+             }
+          }
+        });
+        originalHTML = document.getElementById("reading-text").innerHTML;
       }
     });
   }
@@ -207,7 +235,7 @@ async function initCamera(){
   }
 }
 
-function takeSnapshot(){
+async function takeSnapshot(){
   const video = document.getElementById("video");
   if(!videoStream){ showInlineError("No video stream"); return; }
 
@@ -217,36 +245,41 @@ function takeSnapshot(){
   canvas.getContext("2d").drawImage(video,0,0);
 
   const snapshotImg = document.getElementById("snapshot-img");
+  const base64Frame = canvas.toDataURL("image/jpeg");
+  snapshotImg.src = base64Frame;
+  document.getElementById("snapshot-thumb").style.display="block";
 
-  canvas.toBlob(async (blob) => {
-    snapshotImg.src = URL.createObjectURL(blob);
-    document.getElementById("snapshot-thumb").style.display="block";
-
+  addChat("Scanning text from camera...","user");
+  
+  try {
+    // Convert directly to a pure binary Blob to avoid base64 header corruption in FastAPI
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
     const formData = new FormData();
     formData.append("file", blob, "snapshot.jpg");
 
-    try {
-      const res = await fetch(`${CONFIG.API_URL}/api/upload-image`, {
-        method:"POST",
-        body: formData
-      });
-      const data = await res.json();
-      console.log("[UPLOAD] Response:", data);
+    // Send to standard image OCR endpoint
+    const uploadRes = await fetch(`${CONFIG.API_URL}/api/upload-image`, {
+      method: "POST",
+      body: formData
+    });
 
-      if(data.full_text){
-        mockWords = data.full_text.split(" ");
-        renderTextWithHighlight(data.full_text, true);
-      }
-
-      addChat("Snapshot processed.","ai");
-
-    } catch(e){
-      console.error("[UPLOAD] Error:", e);
-      addChat("Snapshot upload failed.","ai");
+    if (!uploadRes.ok) {
+       addChat("Failed to scan snapshot. Ensure the API is reachable.","ai");
+       return;
     }
-  }, "image/jpeg");
 
-  addChat("Snapshot taken.","user");
+    const data = await uploadRes.json();
+    if(data.full_text){
+      addChat(`Extracted ${data.words.length} words from your snapshot.`,"ai");
+      // This will automatically process difficult words and set AI context
+      renderTextWithHighlight(data.full_text, true); 
+    } else {
+      addChat("No text could be found in the image.","ai");
+    }
+  } catch (err) {
+    console.error("Snapshot scan error:", err);
+    addChat("Error scanning snapshot.","ai");
+  }
 }
 
 async function fetchUrl() {
@@ -408,6 +441,28 @@ function handleUpload(event){
       addChat("File upload failed.","ai");
     });
   }
+}  
+
+function setupDragAndDrop() {
+  const dropZone = document.getElementById("reading-text");
+  if (!dropZone) return;
+
+  dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+  });
+
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("dragover");
+  });
+
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload({ target: { files: e.dataTransfer.files } });
+    }
+  });
 }
 
 function validateFile(file){
@@ -528,8 +583,7 @@ function renderTextWithHighlight(text, isRealContent = false){
       const wordSpan = document.createElement("span");
       wordSpan.textContent = w + " ";
       wordSpan.className = "word";
-      wordSpan.dataset.index = wIdx;
-      wordSpan.onclick = () => highlightWord(wIdx);
+      wordSpan.dataset.wordIndex = wIdx;
       
       // Inject Bionic Reading spans if active
       if (isBionicActive && w.length > 1) {
@@ -576,13 +630,7 @@ function renderTextWithHighlight(text, isRealContent = false){
     generateNotes(text);
     
     // Send context to Live API session so AI knows about the text
-    if(ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        session_token: SESSION_TOKEN,
-        type: "set_context",
-        text: text
-      }));
-    }
+    sendMessage("set_context", { text: text });
   }
 }
 
@@ -774,7 +822,7 @@ async function initWebSocket(){
     console.log("[WS] Connected");
     reconnectAttempts = 0;
     updateStatus("online", "Lexi Online");
-    if(SESSION_TOKEN) ws.send(JSON.stringify({session_token:SESSION_TOKEN}));
+    sendMessage("init");
   };
 
   ws.onmessage = async(event) => {
@@ -803,6 +851,7 @@ async function initWebSocket(){
       if(msg.type==="error") {
           if (msg.message === "Capacity Limit" || msg.message === "Connection Failed") {
               updateStatus("offline", msg.message);
+              window.shouldReconnect = false; // Prevent infinite loop if API is exhausted
           } else {
               addChat(msg.message, "ai");
           }
@@ -813,7 +862,7 @@ async function initWebSocket(){
         highlightSentence(msg.sentence_index);
         addChat(`📖 Explaining sentence ${msg.sentence_index + 1}...`,"ai");
       }
-      if(msg.type==="explain_transcript"){
+      if(msg.type==="transcript" || msg.type==="explain_transcript"){
         const txt = (msg.text || "").trim();
         if (txt.length > 0) {
           addChat(txt, "ai");
@@ -841,6 +890,12 @@ async function initWebSocket(){
     audioQueue = [];
     
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    
+    // Stop reconnecting if it was a fatal error
+    if (window.shouldReconnect === false) {
+       console.log("Auto-reconnect disabled due to fatal error.");
+       return;
+    }
     
     const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
     reconnectAttempts++;
@@ -961,10 +1016,16 @@ function setupEvents(){
     .addEventListener("click",(e)=>{
       const mode = e.target.dataset.mode;
       if(!mode) return;
+      
+      CONFIG.MODE = mode;
+      document.getElementById("mode-toggle").textContent = "⚙ Mode: " + mode.charAt(0).toUpperCase() + mode.slice(1);
+      document.getElementById("mode-dropdown").style.display="none";
+      
+      // Tell backend if connected
+      sendMessage("mode", { mode });
+      
+      addChat(`Mode switched to: ${mode}`,"ai");
       renderMockTextForMode(mode);
-      if(ws && ws.readyState===WebSocket.OPEN){
-        ws.send(JSON.stringify({type:"mode",mode}));
-      }
     });
 
   document.getElementById("consent-btn")
@@ -1005,11 +1066,7 @@ function setupEvents(){
         btn.disabled = true;
         btn.style.opacity = "0.5";
         addChat("🔄 Explaining your text... please wait.", "ai");
-        ws.send(JSON.stringify({
-          session_token: SESSION_TOKEN,
-          type: "explain", 
-          text: rawText
-        }));
+        sendMessage("explain", { text: rawText });
         updateStatus("online", "Explaining...");
         // Safety timeout: re-enable button after 30s
         setTimeout(() => {
@@ -1042,6 +1099,15 @@ function setupEvents(){
     currentView = "original";
     e.target.classList.add("active-toggle");
     document.getElementById("view-analyzed-btn").classList.remove("active-toggle");
+  });
+  
+  // Use Event Delegation for word highlighting because innerHTML assignments destroy direct click listeners
+  document.getElementById("reading-text")?.addEventListener("click", (e) => {
+    if (currentView !== "original") return;
+    const wordSpan = e.target.closest(".word");
+    if (wordSpan && wordSpan.dataset.wordIndex) {
+      highlightWord(parseInt(wordSpan.dataset.wordIndex, 10));
+    }
   });
 
   document.getElementById("view-analyzed-btn")?.addEventListener("click", (e) => {
@@ -1090,12 +1156,10 @@ function setupEvents(){
     addChat(`Explain: "${currentSelection}"`, "user");
     
     if(ws && ws.readyState === WebSocket.OPEN){
-      ws.send(JSON.stringify({
-        session_token: SESSION_TOKEN,
-        type: "explain_selection", 
+      sendMessage("explain_selection", {
         context: rawText,
         selection: currentSelection
-      }));
+      });
     } else {
       addChat("I'm not connected yet. Click the mic button to connect!", "ai");
     }

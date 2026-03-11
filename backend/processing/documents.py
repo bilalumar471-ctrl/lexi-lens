@@ -135,8 +135,21 @@ async def upload_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=result)
 
     detected_mime = magic.from_buffer(data[:2048], mime=True)
+    
+    # If the file is uploaded as a text Blob or we detect 'data:image' prefix
+    if detected_mime == "text/plain" or data.startswith(b"data:image/"):
+        try:
+            text_data = data.decode('utf-8', errors='ignore')
+            if "base64," in text_data:
+                import base64
+                header, b64_str = text_data.split("base64,", 1)
+                data = base64.b64decode(b64_str.strip())
+                detected_mime = magic.from_buffer(data[:2048], mime=True)
+        except Exception as e:
+            logger.warning(f"Failed to decode base64 image: {e}")
+
     if detected_mime not in {"image/png", "image/jpeg", "image/webp"}:
-        raise HTTPException(status_code=400, detail="Expected an image file (PNG, JPEG, or WebP).")
+        raise HTTPException(status_code=400, detail=f"Expected an image file (PNG, JPEG, or WebP). Got {detected_mime}")
 
     settings = get_settings()
     client = genai.Client(api_key=settings.GEMINI_API_KEY)

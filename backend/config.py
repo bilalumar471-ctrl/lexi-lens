@@ -26,9 +26,19 @@ class Settings(BaseSettings):
 
     PROJECT_ID: str = os.getenv("PROJECT_ID", "lexi-lens")
     ENV: str = os.getenv("ENV", "development")
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5500", "http://127.0.0.1:5500"]
-    GEMINI_MODEL: str = "gemini-2.5-flash-native-audio-preview-12-2025"
-    LOG_LEVEL: str = "INFO"
+    ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001"
+    ]
+    GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
+    LOG_LEVEL: str = "DEBUG"
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     class Config:

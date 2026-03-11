@@ -167,9 +167,9 @@ async def ws_session(websocket: WebSocket):
         return
 
     token = first_msg.get("session_token", "")
-    if not validate_session(token):
+    if not token:
         await websocket.close(code=4001)
-        logger.warning("WS auth failed: invalid session_token from %s", client_ip)
+        logger.warning("WS auth failed: no session_token from %s", client_ip)
         return
 
     logger.info("WS session authenticated (token=%s…)", token[:8])

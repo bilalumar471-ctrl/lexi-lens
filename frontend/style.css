@@ -198,20 +198,36 @@ body {
   margin-bottom: 12px;
 }
 
-/* ================= TEXT DISPLAY (Dyslexia-Friendly) ================= */
+/* ================= TEXT DISPLAY (Phase 2 Formats) ================= */
 .text-display {
   position: relative;
   padding: 20px 22px 24px;
-  font-size: 19px;
-  line-height: 2.0;
-  letter-spacing: 0.08em;
-  word-spacing: 0.15em;
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden; /* Prevent horizontal scroll from overflowing tooltips */
 }
+
+#reading-text {
+  font-family: var(--dyslexic-font);
+  font-size: 20px;
+  line-height: 1.8;
+  max-width: 700px;
+  margin: 0;
+  padding: 10px;
+  min-height: 150px;
+  letter-spacing: 0.05em;
+  word-spacing: 0.1em;
+  transition: background 0.2s, outline 0.2s;
+}
+
+#reading-text.dragover {
+  background: rgba(169, 140, 255, 0.1);
+  outline: 2px dashed #A98CFF;
+  border-radius: 8px;
+}
+
 .text-display::before {
   content: "";
   position: absolute;
@@ -331,8 +347,9 @@ body {
 
 /* ================= ACTIVE WORD HIGHLIGHT ================= */
 .active-word {
-  background: #ffd54f;
-  border-radius: 4px;
+  background: #F9E79F;
+  border-radius: 3px;
+  transition: 0.15s;
 }
 
 /* ================= ACTIVE SENTENCE HIGHLIGHT ================= */
@@ -398,13 +415,10 @@ body {
   
   /* Sliding Animation */
   transform: translateY(10px);
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              visibility 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 5;
+}
+
+.hidden {
+  display: none !important;
 }
 
 .tools-panel.active {

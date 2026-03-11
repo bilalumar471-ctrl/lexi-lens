@@ -125,7 +125,7 @@ class LexiAgent:
             self._session_dead.clear()
 
             self._session_cm = self._client.aio.live.connect(
-                model=self._settings.GEMINI_MODEL,
+                model="gemini-2.5-flash-native-audio-latest",
                 config=config,
             )
             if self._session_cm:
