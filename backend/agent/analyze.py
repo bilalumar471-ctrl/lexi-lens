@@ -190,3 +190,38 @@ def extract_key_points(text: str) -> dict:
         logger.error(f"Error extracting key points: {e}")
         return {"key_points": []}
 
+# System prompt for writing suggestions
+WRITE_SUGGEST_PROMPT = """\
+You are an expert editor. Analyze the text for grammar or spelling errors.
+For each error, provide the incorrect word and the suggested fix.
+
+You MUST return ONLY a valid JSON list in this exact format, nothing else:
+["Change 'error' to 'fix'", "Change 'bad' to 'good'"]
+
+Text:
+"""
+
+def get_write_suggestions(text: str) -> dict:
+    """Find grammar/spelling errors and suggest fixes."""
+    settings = get_settings()
+    if not settings.GEMINI_API_KEY:
+        return {"suggestions": []}
+    
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
+    
+    try:
+        response = client.models.generate_content(
+            model=settings.GEMINI_STANDARD_MODEL,
+            contents=f"{WRITE_SUGGEST_PROMPT}\n{text}",
+        )
+        if response.text:
+            result = _safe_parse_json(response.text, "suggestions")
+            if isinstance(result, list):
+                return {"suggestions": result}
+            elif isinstance(result, dict) and "suggestions" in result:
+                return result
+        return {"suggestions": []}
+    except Exception as e:
+        logger.error(f"Error getting write suggestions: {e}")
+        return {"suggestions": []}
+

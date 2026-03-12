@@ -39,7 +39,7 @@ body {
 .main-layout {
   display: flex;
   gap: 24px;
-  padding: 24px;
+  padding: 24px 40px 24px 24px;
   height: 100vh;
   box-sizing: border-box;
   overflow: hidden;
@@ -877,6 +877,193 @@ body {
 }
 
 /* Mobile Responsiveness */
+
+/* ================= WRITE MODE (Enhanced) ================= */
+.write-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 10px;
+  margin-top: -10px;
+  animation: fadeIn 0.3s ease;
+}
+
+.write-header h3 {
+  margin: 0 0 4px 0;
+  color: #6d28d9;
+}
+
+.write-header p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-subtle);
+}
+
+.write-controls-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -4px;
+}
+
+.undo-redo-group {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  background: #f8fafc;
+  border-color: var(--g1);
+  transform: translateY(-1px);
+}
+
+.write-input-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#write-textarea {
+  position: relative;
+  z-index: 2;
+  background: transparent !important;
+  width: 100%;
+  min-height: 120px;
+  padding: 16px;
+  font-family: var(--dyslexic-font);
+  font-size: 20px;
+  line-height: 1.6;
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  resize: vertical;
+  transition: border-color 0.2s;
+  letter-spacing: 0.05em;
+  color: #334155;
+  caret-color: var(--g1);
+}
+
+.highlight-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  font-family: var(--dyslexic-font);
+  font-size: 20px;
+  line-height: 1.6;
+  letter-spacing: 0.05em;
+  color: transparent;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  z-index: 3;
+  border: 2px solid transparent;
+  overflow: hidden;
+}
+
+.highlight-overlay * {
+  pointer-events: auto;
+}
+
+.error-hint {
+  text-decoration: underline wavy #ef4444;
+  text-decoration-thickness: 2px;
+  padding-bottom: 2px;
+  cursor: help;
+  display: inline;
+  position: relative;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.prediction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -5px;
+  min-height: 38px;
+}
+
+.prediction-item {
+  padding: 6px 14px;
+  background: #f3f4f6;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.prediction-item:hover {
+  background: #e5e7eb;
+}
+
+.write-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: -5px;
+}
+
+/* Premium Suggestion Tooltip */
+.suggestion-tooltip {
+  position: fixed;
+  z-index: 10000;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 2px solid var(--g1);
+  padding: 14px 18px;
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  min-width: 180px;
+  max-width: 280px;
+  pointer-events: auto;
+  font-family: var(--dyslexic-font);
+  animation: tooltipAppear 0.3s ease-out;
+}
+
+@keyframes tooltipAppear {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.suggestion-tooltip .label {
+  display: block;
+  font-size: 12px;
+  color: #7c3aed;
+  font-weight: bold;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.suggestion-tooltip .value {
+  display: block;
+  font-size: 18px;
+  color: #4c1d95;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.suggestion-tooltip .value:hover {
+  text-decoration: underline;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (max-width: 768px) {
   .main-layout {
     flex-direction: column;

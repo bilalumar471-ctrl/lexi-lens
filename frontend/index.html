@@ -125,6 +125,37 @@ style-src 'self' 'unsafe-inline';
               </div>
             </div>
             
+            <!-- Write Mode Panel -->
+            <div id="write-mode-panel" class="write-mode-panel" style="display: none;">
+              <div class="write-header">
+                <h3>Lexi Write</h3>
+                <p>Type here or use voice commands to write together.</p>
+              </div>
+              <div class="write-controls-top">
+                <div class="undo-redo-group">
+                  <button id="write-undo-btn" class="icon-btn" title="Undo">↩️</button>
+                  <button id="write-redo-btn" class="icon-btn" title="Redo">↪️</button>
+                </div>
+              </div>
+              <div class="write-input-area">
+                <textarea id="write-textarea" placeholder="Start writing something..."></textarea>
+                <div id="write-highlight-overlay" class="highlight-overlay"></div>
+              </div>
+
+              <!-- Prediction Bar (Lexi suggests next word) -->
+              <div id="prediction-bar" class="prediction-bar"></div>
+
+              <div class="write-actions">
+                <button id="write-stt-btn" class="btn mic-btn" title="Convert your voice to text">🎙 Speak</button>
+                <button id="write-ai-btn" class="btn btn-primary" title="Say 'Lexi, help me write...'">✨ AI Write</button>
+                <button id="write-readback-btn" class="btn" title="Listen to your text">🔊 Read Back</button>
+              </div>
+
+              <div id="ai-suggestions" class="ai-suggestions" style="display: none;">
+                <!-- AI Suggestions will appear here -->
+              </div>
+            </div>
+            
             <!-- Selection Popup Button -->
             <div id="selection-popup" class="selection-popup">
               <button id="explain-selection-btn">🌟 Explain This</button>

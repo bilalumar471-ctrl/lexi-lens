@@ -528,6 +528,14 @@ async function initWebSocket(){
         document.getElementById("dictation-area").classList.remove("hidden");
         document.getElementById("dictation-text-display").textContent = m.cleaned || m.raw;
       }
+      if(m.type === "push_to_write_area") {
+        const ta = document.getElementById("write-textarea");
+        if(ta) {
+          ta.value += (ta.value.endsWith(" ") || !ta.value ? "" : " ") + m.text;
+          syncOverlay();
+          saveState();
+        }
+      }
     } else {
       console.log("Audio chunk received, length:", e.data.byteLength);
       playAudioChunk(e.data);
@@ -559,9 +567,17 @@ async function drainQueue(){
 // ================= UI HELPERS =================
 function updateModeBadge(mode) {
   const badge = document.getElementById("mode-badge"); if (!badge) return;
-  const labels = { "book": "Book Mode", "form": "Form Mode", "study": "Study Mode", "write": "Creative Mode" };
+  const labels = { "book": "Book Mode", "form": "Form Mode", "study": "Study Mode", "write": "Write Mode" };
   badge.textContent = labels[mode] || "General Mode";
   badge.className = "mode-badge mode-" + (mode || "general");
+  
+  // Toggle Visibility
+  const isWrite = (mode === "write");
+  document.getElementById("write-mode-panel").style.display = isWrite ? "flex" : "none";
+  document.getElementById("reading-text").style.display = isWrite ? "none" : "block";
+  document.getElementById("view-toggle-container").style.display = isWrite ? "none" : "flex";
+  
+  if (isWrite) initWriteMode();
 }
 
 function showInlineError(msg){
@@ -631,4 +647,246 @@ function setupEvents(){
     const t = document.getElementById("dictation-text-display").textContent;
     if(t) { navigator.clipboard.writeText(t); sendMessage("dictation_accept", { text: t }); }
   });
+}
+
+// ================= WRITE MODE LOGIC =================
+let writeHistory = [];
+let writeRedoStack = [];
+let suggestionTooltip = null;
+let isWriteMicOn = false;
+let writeSpeechRecognizer = null;
+
+function initWriteMode() {
+    const textarea = document.getElementById("write-textarea");
+    if (!textarea || textarea._initialized) return;
+    textarea._initialized = true;
+
+    textarea.addEventListener("input", () => {
+        syncOverlay();
+        saveState();
+        debouncedSuggest();
+    });
+    textarea.addEventListener("scroll", syncOverlay);
+
+    document.getElementById("write-undo-btn")?.addEventListener("click", undoWrite);
+    document.getElementById("write-redo-btn")?.addEventListener("click", redoWrite);
+    document.getElementById("write-readback-btn")?.addEventListener("click", () => speakText(textarea.value));
+    
+    // Voice buttons
+    document.getElementById("write-stt-btn")?.addEventListener("click", () => startWriteMic(true));
+    document.getElementById("write-ai-btn")?.addEventListener("click", () => startWriteMic(false));
+
+    // Suggestion interactions
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (overlay) {
+        overlay.onmouseenter = () => {
+            if (overlay.querySelectorAll(".error-hint").length > 0) {
+                initHoverSuggestions();
+            }
+        };
+    }
+}
+
+const debouncedSuggest = debounce(() => {
+    const text = document.getElementById("write-textarea").value;
+    if (text.length > 5) fetchSuggestions(text);
+}, 2000);
+
+async function fetchSuggestions(text) {
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/write-suggest`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (data.suggestions) {
+            highlightErrors(data.suggestions);
+        }
+    } catch(e) { console.error("Suggestion fetch failed:", e); }
+}
+
+function highlightErrors(suggestions) {
+    let html = document.getElementById("write-textarea").value;
+    suggestions.forEach(s => {
+        // Expected format: "Change 'word' to 'fix'"
+        const match = s.match(/Change '(.*?)' to '(.*?)'/i);
+        if (match) {
+            const original = match[1];
+            const fix = match[2];
+            const regex = new RegExp(`\\b${original}\\b`, 'gi');
+            html = html.replace(regex, `<span class="error-hint" data-correction="${fix}">${original}</span>`);
+        }
+    });
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (overlay) {
+        overlay.innerHTML = html + "\u200b";
+        initHoverSuggestions();
+    }
+}
+
+function syncOverlay() {
+    const textarea = document.getElementById("write-textarea");
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (textarea && overlay) {
+        overlay.textContent = textarea.value + "\u200b";
+        overlay.scrollTop = textarea.scrollTop;
+    }
+}
+
+function saveState() {
+    const val = document.getElementById("write-textarea").value;
+    if (!writeHistory.length || writeHistory[writeHistory.length-1] !== val) {
+        writeHistory.push(val);
+        if (writeHistory.length > 50) writeHistory.shift();
+        writeRedoStack = [];
+    }
+}
+
+function undoWrite() {
+    if (writeHistory.length > 1) {
+        writeRedoStack.push(writeHistory.pop());
+        const ta = document.getElementById("write-textarea");
+        ta.value = writeHistory[writeHistory.length-1];
+        syncOverlay();
+    }
+}
+
+function redoWrite() {
+    if (writeRedoStack.length) {
+        const state = writeRedoStack.pop();
+        writeHistory.push(state);
+        document.getElementById("write-textarea").value = state;
+        syncOverlay();
+    }
+}
+
+function initHoverSuggestions() {
+    const hints = document.querySelectorAll(".error-hint");
+    if (!suggestionTooltip) {
+        suggestionTooltip = document.createElement("div");
+        suggestionTooltip.className = "suggestion-tooltip";
+        suggestionTooltip.style.display = "none";
+        document.body.appendChild(suggestionTooltip);
+        
+        suggestionTooltip.onmouseenter = () => {
+            clearTimeout(suggestionTooltip._hideTimeout);
+            suggestionTooltip.style.display = "block";
+        };
+        suggestionTooltip.onmouseleave = () => {
+            suggestionTooltip.style.display = "none";
+        };
+    }
+
+    hints.forEach(hint => {
+        hint.onmouseover = () => {
+            clearTimeout(suggestionTooltip._hideTimeout);
+            const corr = hint.getAttribute("data-correction") || "Correction Suggestion";
+            const original = hint.textContent;
+            
+            suggestionTooltip.innerHTML = `
+                <span class="label">Lexi Suggests:</span>
+                <span class="value" onclick="applyCorrection('${original.replace(/'/g, "\\'")}', '${corr.replace(/'/g, "\\")}')">${corr}</span>
+                <div style="font-size:10px; color:#999; margin-top:8px;">Click to apply</div>
+            `;
+            
+            suggestionTooltip.style.display = "block";
+            const rect = hint.getBoundingClientRect();
+            suggestionTooltip.style.left = Math.max(10, rect.left) + "px";
+            suggestionTooltip.style.top = (rect.top - 80) + "px";
+        };
+        
+        hint.onmouseout = () => {
+            suggestionTooltip._hideTimeout = setTimeout(() => {
+                suggestionTooltip.style.display = "none";
+            }, 200);
+        };
+    });
+}
+
+window.applyCorrection = function(original, replacement) {
+    const textarea = document.getElementById("write-textarea");
+    if (!textarea) return;
+    const oldText = textarea.value;
+    const regex = new RegExp(`\\b${original}\\b`, 'i');
+    textarea.value = oldText.replace(regex, replacement);
+    if (suggestionTooltip) suggestionTooltip.style.display = "none";
+    syncOverlay();
+    saveState();
+    addChat(`✅ Fixed "${original}" to "${replacement}"`, "ai");
+};
+
+function startWriteMic(isSTT = true) {
+    if (isWriteMicOn) { stopWriteMic(); return; }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    
+    isWriteMicOn = true;
+    const btn = document.getElementById(isSTT ? "write-stt-btn" : "write-ai-btn");
+    if (btn) btn.classList.add("recording");
+    
+    writeSpeechRecognizer = new SpeechRecognition();
+    writeSpeechRecognizer.continuous = true;
+    writeSpeechRecognizer.interimResults = true;
+    writeSpeechRecognizer.lang = 'en-US';
+
+    writeSpeechRecognizer.onresult = (event) => {
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) final += event.results[i][0].transcript;
+        }
+        if (final) {
+            if (isSTT) {
+                const ta = document.getElementById("write-textarea");
+                ta.value += (ta.value.endsWith(" ") || !ta.value ? "" : " ") + final;
+                syncOverlay();
+                saveState();
+            } else {
+                addChat(`🗣 Command: "${final}"`, "user");
+                sendMessage("write_command", { command: final, current_text: document.getElementById("write-textarea").value });
+                stopWriteMic();
+            }
+        }
+    };
+    writeSpeechRecognizer.onerror = () => stopWriteMic();
+    writeSpeechRecognizer.onend = () => { if (isWriteMicOn) writeSpeechRecognizer.start(); };
+    writeSpeechRecognizer.start();
+    addChat(isSTT ? "Dictating..." : "Say 'Lexi, help me write...'", "user");
+}
+
+function stopWriteMic() {
+    isWriteMicOn = false;
+    document.getElementById("write-stt-btn")?.classList.remove("recording");
+    document.getElementById("write-ai-btn")?.classList.remove("recording");
+    if (writeSpeechRecognizer) {
+        writeSpeechRecognizer.onend = null;
+        try { writeSpeechRecognizer.stop(); } catch{}
+        writeSpeechRecognizer = null;
+    }
+}
+
+// Utility: debounce
+function debounce(func, wait) {
+  let timeout;
+  return function(...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// Dummy for speakText if not defined
+function speakText(text) {
+  if (window.speechSynthesis) {
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = audioPlaybackRate || 1.0;
+    speechSynthesis.speak(utter);
+  }
+}
+
+function addChat(text, sender) {
+  const scroll = document.getElementById("chat-scroll");
+  const msg = document.createElement("div");
+  msg.className = `chat-message ${sender}`;
+  msg.textContent = text;
+  scroll.appendChild(msg);
+  scroll.scrollTop = scroll.scrollHeight;
+  return msg;
 }

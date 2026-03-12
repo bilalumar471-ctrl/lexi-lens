@@ -25,7 +25,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import get_settings, setup_logging
 from agent.lexi import LexiAgent
-from agent.analyze import analyze_text, explain_selection, analyze_notes, extract_key_points
+from agent.analyze import analyze_text, explain_selection, analyze_notes, extract_key_points, get_write_suggestions
 from agent.dictation import DictationEngine
 from agent.screen_reader import ScreenReader
 from agent.reading_speed import ReadingSpeedController
@@ -130,6 +130,12 @@ def api_analyze_notes(req: AnalyzeRequest):
 def api_key_points(req: AnalyzeRequest):
     """Extract key points from text."""
     result = extract_key_points(req.text)
+    return result
+
+@app.post("/api/write-suggest")
+def api_write_suggest(req: AnalyzeRequest):
+    """Get grammar and spelling suggestions for writing."""
+    result = get_write_suggestions(req.text)
     return result
 
 
@@ -284,6 +290,11 @@ async def ws_session(websocket: WebSocket):
                                 "type": "mode_changed",
                                 "mode": agent.current_mode,
                             })
+                        elif msg_type == "write_command":
+                            cmd = msg.get("command", "")
+                            curr = msg.get("current_text", "")
+                            logger.info("Write command: %s", cmd)
+                            await agent.handle_write_command(cmd, curr, websocket)
 
                         # ----- Dictation -----
                         elif msg_type == "dictation":

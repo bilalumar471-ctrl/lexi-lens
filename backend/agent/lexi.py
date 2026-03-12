@@ -324,6 +324,40 @@ class LexiAgent:
             await websocket.send_json({"type": "explain_done"})
         except Exception:
             pass
+
+    async def handle_write_command(self, command: str, current_text: str, websocket: Any) -> None:
+        """Process an AI writing command (e.g. 'help me write a story')."""
+        prompt = (
+            f"The user is writing. Their current text is: \"{current_text}\"\n"
+            f"They just gave an instruction: \"{command}\"\n"
+            f"Please fulfill the instruction. Your response should be ONLY the NEW or IMPROVED text that should be added to the writing area."
+            f"If you generate a story or a paragraph, wrap it with [PUSH_TO_WRITE_AREA] tokens so the frontend knows to insert it.\n"
+            f"Example: [PUSH_TO_WRITE_AREA]Once upon a time...[PUSH_TO_WRITE_AREA]"
+        )
+        
+        try:
+            settings = get_settings()
+            client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
+            
+            response = client.models.generate_content(
+                model=settings.GEMINI_STANDARD_MODEL,
+                contents=prompt,
+            )
+            
+            generated = response.text or "I couldn't generate that right now."
+            await websocket.send_json({"type": "transcript", "text": generated})
+            
+            if "[PUSH_TO_WRITE_AREA]" in generated:
+                parts = generated.split("[PUSH_TO_WRITE_AREA]")
+                if len(parts) >= 2:
+                    content_to_push = parts[1].strip()
+                    await websocket.send_json({
+                        "type": "push_to_write_area",
+                        "text": content_to_push
+                    })
+        except Exception as e:
+            logger.error(f"Write command failed: {e}")
+            await websocket.send_json({"type": "transcript", "text": "Sorry, I had trouble with that command."})
         logger.info("Explain flow complete")
 
     async def set_mode(self, mode: str) -> None:
