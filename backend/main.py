@@ -25,7 +25,10 @@ from slowapi.errors import RateLimitExceeded
 
 from config import get_settings, setup_logging
 from agent.lexi import LexiAgent
-from agent.analyze import analyze_text, explain_selection, analyze_notes
+from agent.analyze import analyze_text, explain_selection, analyze_notes, extract_key_points
+from agent.dictation import DictationEngine
+from agent.screen_reader import ScreenReader
+from agent.reading_speed import ReadingSpeedController
 from processing.documents import router as documents_router
 from security import (
     create_session,
@@ -118,6 +121,12 @@ def api_analyze_notes(req: AnalyzeRequest):
     result = analyze_notes(req.text)
     return result
 
+@app.post("/api/key-points")
+def api_key_points(req: AnalyzeRequest):
+    """Extract key points from text."""
+    result = extract_key_points(req.text)
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Session creation
@@ -176,6 +185,7 @@ async def ws_session(websocket: WebSocket):
 
     # --- Step 2: main loop ---
     agent = LexiAgent()
+    speed_ctrl = ReadingSpeedController()
 
     async def heartbeat():
         """Send periodic pings to keep the connection alive."""
@@ -242,7 +252,13 @@ async def ws_session(websocket: WebSocket):
                         msg_type = msg.get("type")
                         logger.info(f"==> RECEIVED WS COMMAND: {msg_type}")
                         if msg_type == "mode":
-                            logger.info("Mode switch: %s", msg.get("mode"))
+                            new_mode = msg.get("mode", "general")
+                            logger.info("Mode switch: %s", new_mode)
+                            await agent.set_mode(new_mode)
+                            await websocket.send_json({
+                                "type": "mode_changed",
+                                "mode": new_mode,
+                            })
                         elif msg_type == "text":
                             logger.info("Text message: %s", msg.get("message"))
                         elif msg_type == "explain":
@@ -258,6 +274,62 @@ async def ws_session(websocket: WebSocket):
                             context_text = msg.get("text", "")
                             logger.info("Setting context text (length: %d)", len(context_text))
                             await agent.set_context(context_text)
+                            # Report auto-detected mode back to client
+                            await websocket.send_json({
+                                "type": "mode_changed",
+                                "mode": agent.current_mode,
+                            })
+
+                        # ----- Dictation -----
+                        elif msg_type == "dictation":
+                            audio_b64 = msg.get("audio", "")
+                            logger.info("Dictation request received")
+                            result = await DictationEngine.process(
+                                session_id=token, audio_base64=audio_b64,
+                            )
+                            await websocket.send_json({
+                                "type": "dictation_result",
+                                "raw": result["raw"],
+                                "cleaned": result["cleaned"],
+                            })
+
+                        elif msg_type == "dictation_accept":
+                            final_text = msg.get("text", "")
+                            logger.info("Dictation accepted, storing")
+                            doc_id = DictationEngine.store(
+                                session_id=token, text=final_text,
+                            )
+                            await websocket.send_json({
+                                "type": "dictation_stored",
+                                "doc_id": doc_id,
+                            })
+
+                        # ----- Screen Reader -----
+                        elif msg_type == "screen_frame":
+                            frame_b64 = msg.get("frame", "")
+                            logger.info("Screen reader request received")
+                            narration = await ScreenReader.describe(frame_b64)
+                            await websocket.send_json({
+                                "type": "screen_narration",
+                                "text": narration,
+                            })
+                            # Optionally speak through Live API
+                            if narration and agent._session and not agent._session_dead.is_set():
+                                try:
+                                    await agent._session.send(
+                                        input=f"Read this aloud naturally: {narration}",
+                                        end_of_turn=True,
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"Screen reader speech failed: {e}")
+
+                        # ----- Reading Speed -----
+                        elif msg_type == "speed_command":
+                            cmd_text = msg.get("text", "")
+                            logger.info("Speed command: %s", cmd_text)
+                            speed_event = speed_ctrl.parse_speed_command(cmd_text)
+                            if speed_event:
+                                await websocket.send_json(speed_event)
 
             except WebSocketDisconnect:
                 logger.info("Client disconnected (send path)")
@@ -268,6 +340,9 @@ async def ws_session(websocket: WebSocket):
                 # Pass websocket so agent can also send transcripts/highlights
                 async for chunk in agent.receive_audio(websocket):
                     await websocket.send_bytes(chunk)
+
+                    # Check transcripts for inline speed commands
+                    # (speed_ctrl inspects spoken text passively)
             except WebSocketDisconnect:
                 logger.info("Client disconnected (receive path)")
 

@@ -17,6 +17,7 @@ from google import genai
 from google.genai import types
 
 from config import get_settings
+from agent.mode_router import detect_mode, get_mode_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ class LexiAgent:
         self._turn_done = asyncio.Event()
         self._explaining = False 
         self._session_dead = asyncio.Event()
+        self.current_mode: str = "general"
 
     async def connect(self):
         """Connect to Gemini Live API."""
@@ -324,10 +326,40 @@ class LexiAgent:
             pass
         logger.info("Explain flow complete")
 
+    async def set_mode(self, mode: str) -> None:
+        """Explicitly switch Lexi's subject mode."""
+        self.current_mode = mode
+        logger.info("Subject mode set to: %s", mode)
+        if not self._session or self._session_dead.is_set():
+            return
+        prompt_addition = get_mode_prompt(mode)
+        if prompt_addition:
+            try:
+                await self._session.send(
+                    input=f"UPDATED TEACHING MODE: {prompt_addition}",
+                    end_of_turn=True,
+                )
+                self._turn_done.clear()
+                try:
+                    await asyncio.wait_for(self._turn_done.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
+            except Exception as e:
+                logger.warning(f"Failed to send mode update: {e}")
+
     async def set_context(self, text: str) -> None:
         """Send uploaded text context to the Live API session."""
         if not self._session or self._session_dead.is_set():
             return
+
+        # Auto-detect subject mode from text content
+        detected = detect_mode(text)
+        if detected != self.current_mode:
+            self.current_mode = detected
+            logger.info("Auto-detected subject mode: %s", detected)
+
+        mode_prompt = get_mode_prompt(self.current_mode)
+
         try:
             context_msg = (
                 f"IGNORE ALL PREVIOUS DOCUMENTS AND FILES I HAVE UPLOADED. "
@@ -335,6 +367,9 @@ class LexiAgent:
                 f"{text[:3000]}\n\n"
                 f"Remember this new content exclusively. The user may ask you to read it, explain parts of it, or ask questions about it."
             )
+            if mode_prompt:
+                context_msg += f"\n\nTEACHING MODE: {mode_prompt}"
+
             await self._session.send(input=context_msg, end_of_turn=True)
             # Wait briefly for acknowledgment
             self._turn_done.clear()
@@ -342,7 +377,7 @@ class LexiAgent:
                 await asyncio.wait_for(self._turn_done.wait(), timeout=8.0)
             except asyncio.TimeoutError:
                 pass
-            logger.info("Context sent to Live session")
+            logger.info("Context sent to Live session (mode=%s)", self.current_mode)
         except Exception as e:
             logger.warning(f"Failed to send context to Live session: {e}")
 

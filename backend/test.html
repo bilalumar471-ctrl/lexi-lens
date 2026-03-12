@@ -194,7 +194,7 @@
         let SESSION_TOKEN = null;
 
         /* ── State ───────────────────────────────────────────────── */
-        let ws, mediaRecorder, audioCtx, audioQueue = [], isPlaying = false;
+        let ws, audioCtx, audioQueue = [], isPlaying = false;
 
         /* ── Logging helpers ─────────────────────────────────────── */
         const logEl = document.getElementById('log');
@@ -311,26 +311,51 @@
             }, 1500);
         }
 
-        /* ── 2. Microphone capture ───────────────────────────────── */
+        /* ── 2. Microphone capture (raw PCM int16 @ 16kHz) ───────── */
+        let micAudioCtx = null;
+        let micScriptProcessor = null;
+        let micStreamObj = null;
+
         async function startMic() {
             addLog('Requesting microphone permission...', 'info');
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+                micStreamObj = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true }
                 });
                 addLog('✅ Microphone access granted', 'pass');
                 setDot('mic', 'green', 'Microphone ✅');
 
-                mediaRecorder = new MediaRecorder(stream);
-                mediaRecorder.ondataavailable = async (e) => {
-                    if (e.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
-                        const buffer = await e.data.arrayBuffer();
-                        ws.send(buffer);
-                        addLog(`→ Sent ${buffer.byteLength} bytes of audio`, 'send');
+                // Create AudioContext — browser may give us 48kHz, 44.1kHz, etc.
+                micAudioCtx = new AudioContext({ sampleRate: 16000 });
+                const source = micAudioCtx.createMediaStreamSource(micStreamObj);
+                micScriptProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
+
+                source.connect(micScriptProcessor);
+                micScriptProcessor.connect(micAudioCtx.destination);
+
+                micScriptProcessor.onaudioprocess = (e) => {
+                    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+                    const input = e.inputBuffer.getChannelData(0);
+
+                    // Downsample from actual sample rate to 16 kHz
+                    const ratio = micAudioCtx.sampleRate / 16000;
+                    const newLength = Math.round(input.length / ratio);
+                    const downsampled = new Float32Array(newLength);
+                    for (let i = 0; i < newLength; i++) {
+                        downsampled[i] = input[Math.floor(i * ratio)];
                     }
+
+                    // Convert float32 [-1, 1] → int16 [-32768, 32767]
+                    const pcm16 = new Int16Array(downsampled.length);
+                    for (let i = 0; i < downsampled.length; i++) {
+                        pcm16[i] = Math.max(-1, Math.min(1, downsampled[i])) * 0x7FFF;
+                    }
+
+                    ws.send(pcm16.buffer);
+                    addLog(`→ Sent ${pcm16.buffer.byteLength} bytes of audio`, 'send');
                 };
 
-                mediaRecorder.start(250);
                 addLog('🎤 Mic is live — speak now. Lexi should respond...', 'pass');
                 document.getElementById('btn-stop').disabled = false;
                 document.getElementById('btn-speak').disabled = true;
@@ -341,11 +366,11 @@
         }
 
         function stopMic() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                addLog('Microphone stopped', 'info');
-                setDot('mic', 'yellow', 'Microphone stopped');
-            }
+            if (micScriptProcessor) { micScriptProcessor.disconnect(); micScriptProcessor = null; }
+            if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
+            if (micStreamObj) { micStreamObj.getTracks().forEach(t => t.stop()); micStreamObj = null; }
+            addLog('Microphone stopped', 'info');
+            setDot('mic', 'yellow', 'Microphone stopped');
             document.getElementById('btn-speak').disabled = false;
             document.getElementById('btn-stop').disabled = true;
         }

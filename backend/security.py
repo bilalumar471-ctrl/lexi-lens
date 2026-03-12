@@ -75,14 +75,14 @@ def check_ws_rate_limit(ip: str) -> bool:
 
 # Maps message type → set of required keys (beyond "type" itself).
 ALLOWED_MESSAGE_TYPES: dict[str, set[str]] = {
-    "init":     {"session_token"},
-    "audio":    {"session_token"},
-    "mode":     {"session_token", "mode"},
-    "text":     {"session_token", "message"},
-    "explain":  {"session_token", "text"},
-    "explain_selection": {"session_token", "context", "selection"},
-    "set_context": {"session_token", "text"},
-    "snapshot": {"session_token"},
+    "audio":          set(),
+    "mode":           {"mode"},
+    "text":           {"message"},
+    "snapshot":       set(),
+    "dictation":      set(),
+    "dictation_edit": {"edits"},
+    "speed":          {"speed"},
+    "screen_frame":   {"frame"},
 }
 
 

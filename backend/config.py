@@ -21,25 +21,44 @@ from pydantic_settings import BaseSettings
 # Settings
 # ---------------------------------------------------------------------------
 
+def _resolve_frontend_url() -> str:
+    """Resolve the frontend URL: env var first, Secret Manager fallback."""
+    url = os.getenv("FRONTEND_URL", "")
+    if url:
+        return url
+    # Production fallback: fetch from Secret Manager
+    try:
+        from google.cloud import secretmanager
+
+        project = os.getenv("PROJECT_ID", "lexi-lens")
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project}/secrets/FRONTEND_URL/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        url = response.payload.data.decode("utf-8").strip()
+        logging.getLogger(__name__).info("FRONTEND_URL loaded from Secret Manager")
+        return url
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "FRONTEND_URL not set and Secret Manager unavailable"
+        )
+        return ""
+
+
 class Settings(BaseSettings):
     """Application-wide settings, populated from env vars."""
 
     PROJECT_ID: str = os.getenv("PROJECT_ID", "lexi-lens")
     ENV: str = os.getenv("ENV", "development")
-    ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:8001",
-        "http://127.0.0.1:8001"
-    ]
+    FRONTEND_URL: str = _resolve_frontend_url()
     GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
     LOG_LEVEL: str = "DEBUG"
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
+    @property
+    def ALLOWED_ORIGINS(self) -> list[str]:
+        """Return a single-entry origin list from FRONTEND_URL, or empty.
+        Never returns ['*'] and never includes localhost fallbacks."""
+        return [self.FRONTEND_URL] if self.FRONTEND_URL else []
 
     class Config:
         env_file = ".env"

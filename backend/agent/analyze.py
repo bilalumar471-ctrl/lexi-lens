@@ -152,3 +152,39 @@ def analyze_notes(text: str) -> dict:
         logger.error(f"Error generating notes: {e}")
         return {"notes": ["Sorry, I had trouble creating notes for this text."]}
 
+
+# System prompt for extracting key points
+KEY_POINTS_PROMPT = """\
+You are an expert reading assistant. Extract the 3-7 most important key points from the text below.
+For each key point, provide a short title (max 8 words) and a one-sentence explanation.
+
+You MUST return ONLY a valid JSON object in this exact format, nothing else:
+{"key_points": [{"point": "Short title here", "detail": "A brief one-sentence explanation."}]}
+
+Text:
+"""
+
+
+def extract_key_points(text: str) -> dict:
+    """Extract the most important key points from the provided text."""
+    settings = get_settings()
+    if not settings.GEMINI_API_KEY:
+        return {"key_points": []}
+
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"{KEY_POINTS_PROMPT}\n{text}",
+        )
+        if response.text:
+            logger.info(f"Key points response: {response.text[:300]}")
+            result = _safe_parse_json(response.text, "key_points")
+            if "key_points" in result:
+                return result
+        return {"key_points": []}
+    except Exception as e:
+        logger.error(f"Error extracting key points: {e}")
+        return {"key_points": []}
+

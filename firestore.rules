@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------
+    // Sessions: readable/writable ONLY when the authenticated user's
+    // UID matches the sessionId in the path. All other users are
+    // denied even if authenticated.
+    // ---------------------------------------------------------------
+    match /sessions/{sessionId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == sessionId;
+
+      // Subcollections (dictations, screen_readings, etc.) inherit
+      // the same ownership rule.
+      match /{subCollection=**} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid == sessionId;
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Deny-all default: every path not matched above is blocked.
+    // This includes the root and any future collections until
+    // explicit rules are added.
+    // ---------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
