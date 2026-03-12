@@ -60,29 +60,19 @@ style-src 'self' 'unsafe-inline';
             </div>
           </div>
 
-          <!-- Bottom: Camera Controls -->
+          <!-- Bottom: Action Controls -->
           <div class="camera-controls">
             <div class="controls-left">
               <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
-              <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
-              <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
-              <input type="file" id="file-input" style="display: none;">
+              <button id="change-source-btn" class="btn btn-outline" style="display: none;">🔄 Change Source</button>
             </div>
             
-            <!-- URL Input Integration -->
-            <div class="url-control-group" style="flex: 1; display: flex; gap: 8px; margin: 0 12px;">
-              <input type="url" id="url-input" placeholder="Paste article link here..." 
-                     style="flex: 1; padding: 8px 12px; border-radius: 20px; border: 1px solid var(--border); font-family: inherit;">
-              <button id="url-submit-btn" class="btn-primary" style="padding: 8px 16px; border-radius: 20px; white-space: nowrap;">Load Link</button>
-            </div>
-
             <div class="controls-right">
               <div class="mode-wrapper">
                 <button id="mode-toggle" class="btn">⚙ Mode</button>
                 <div class="mode-dropdown" id="mode-dropdown">
-                  <div data-mode="book">Book</div>
+                  <div data-mode="read">Read</div>
                   <div data-mode="form">Form</div>
-                  <div data-mode="study">Study</div>
                   <div data-mode="write">Write</div>
                 </div>
               </div>
@@ -106,8 +96,84 @@ style-src 'self' 'unsafe-inline';
                 <button id="view-analyzed-btn" class="btn-outline" style="padding: 4px 8px; font-size: 12px;">📝 Summary Notes</button>
               </div>
             </div>
-            <div id="reading-text" style="position: relative;">
+            <div id="read-source-selector" class="form-source-selector">
+              <h3>Choose what to read</h3>
+              <p>Capture a snapshot, upload a file, or paste a link to start.</p>
+              <div class="source-buttons" style="flex-wrap: wrap;">
+                <button id="read-snapshot-btn" class="btn-primary">📸 Camera Snapshot</button>
+                <button id="read-upload-btn" class="btn-outline">📄 Upload Document</button>
+              </div>
+              <div class="url-control-group" style="margin-top: 20px; display: flex; gap: 8px;">
+                <input type="url" id="url-input" placeholder="Paste article link here..." 
+                       style="flex: 1; padding: 10px 15px; border-radius: 25px; border: 2px solid var(--border); font-family: inherit;">
+                <button id="url-submit-btn" class="btn-primary" style="border-radius: 25px;">Go</button>
+              </div>
+              <input type="file" id="file-input" style="display: none;">
+            </div>
+
+            <div id="reading-text" style="position: relative; display: none;">
               <p>The recognized text will appear here.</p>
+            </div>
+
+            <!-- Write Mode Panel -->
+            <div id="write-mode-panel" class="write-mode-panel" style="display: none;">
+              <div class="write-controls-top">
+                <div class="undo-redo-group">
+                  <button id="write-undo-btn" class="icon-btn" title="Undo">↩️</button>
+                  <button id="write-redo-btn" class="icon-btn" title="Redo">↪️</button>
+                </div>
+              </div>
+              
+              <div class="write-input-area" style="position: relative;">
+                <textarea id="write-textarea" placeholder="Start typing or use the mic..."></textarea>
+                <div id="write-highlight-overlay" class="highlight-overlay"></div>
+                <div id="word-predictions" class="word-predictions"></div>
+              </div>
+              <div id="prediction-bar" class="prediction-bar"></div>
+
+              <div class="write-actions">
+                <button id="write-stt-btn" class="btn mic-btn" title="Convert your voice to text">🎙 Speak</button>
+                <button id="write-ai-btn" class="btn btn-primary" title="Say 'Lexi, help me write...'">✨ AI Write</button>
+                <button id="write-readback-btn" class="btn" title="Listen to your text">🔊 Read Back</button>
+              </div>
+
+              <div id="ai-suggestions" class="ai-suggestions" style="display: none;">
+                <div class="suggestion-header">💡 AI Suggestions</div>
+                <div id="suggestion-list"></div>
+              </div>
+            </div>
+
+            <!-- Form Mode Panel -->
+            <div id="form-mode-panel" class="form-mode-panel" style="display: none;">
+              <!-- Source Selection (Initial State) -->
+              <div id="form-source-selector" class="form-source-selector">
+                <h3>Select Form Source</h3>
+                <p>Upload a photo of your form or share your screen for live guidance.</p>
+                <div class="source-buttons">
+                  <button id="form-share-btn" class="btn-primary">🖥️ Share Screen</button>
+                  <button id="form-upload-btn" class="btn-outline">📁 Upload Image</button>
+                </div>
+              </div>
+
+              <!-- Active Form View (Hidden by default) -->
+              <div id="form-active-view" class="form-active-view" style="display: none;">
+                <div class="form-view-header">
+                   <span id="form-view-status">Live Guidance Active</span>
+                   <button id="form-switch-source" class="btn-text">🔄 Switch Source</button>
+                </div>
+                <div id="form-visual-container" class="form-visual-container">
+                   <!-- Captured image or screen video will go here -->
+                   <video id="form-screen-video" autoplay playsinline style="display: none;"></video>
+                   <img id="form-upload-img" style="display: none;">
+                </div>
+                
+                <div class="form-assistant-overlay">
+                   <div id="form-lexi-assistant" class="floating-lexi-btn" title="Ask Lexi about this form">
+                      <div class="lexi-avatar"></div>
+                      <span>Lexi Help</span>
+                   </div>
+                </div>
+              </div>
             </div>
             
             <!-- Selection Popup Button -->
@@ -116,9 +182,11 @@ style-src 'self' 'unsafe-inline';
             </div>
           </div>
 
-          <!-- Control Buttons -->
           <div class="control-bar toolbar unified-toolbar">
-            <button id="explain-btn" class="btn-primary">Explain Simply</button>
+            <div class="explain-group" style="display: flex; gap: 8px; align-items: center;">
+              <button id="explain-btn" class="btn-primary">Explain Simply</button>
+              <button id="stop-explain-btn" class="btn btn-stop" title="Stop Explanation" style="display: none; width: 44px; height: 44px; min-width: 44px; border-radius: 50%; padding: 0; background: #ff4d4d; color: white; border: none; font-size: 18px; line-height: 1;">⏹</button>
+            </div>
             <button id="reading-tools-btn" class="btn-outline">🛠 Reading Tools</button>
             
             <!-- Sliding Tools Panel -->

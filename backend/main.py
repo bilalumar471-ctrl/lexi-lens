@@ -25,7 +25,13 @@ from slowapi.errors import RateLimitExceeded
 
 from config import get_settings, setup_logging
 from agent.lexi import LexiAgent
-from agent.analyze import analyze_text, explain_selection, analyze_notes
+from agent.analyze import (
+    analyze_text, 
+    explain_selection, 
+    analyze_notes, 
+    provide_gentle_suggestions, 
+    predict_next_words
+)
 from processing.documents import router as documents_router
 from security import (
     create_session,
@@ -34,6 +40,9 @@ from security import (
     check_ws_rate_limit,
     limiter,
 )
+
+class PredictRequest(BaseModel):
+    text: str
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +102,16 @@ async def health():
 # Text Analysis (Feature A)
 # ---------------------------------------------------------------------------
 
+@app.post("/api/predict-next")
+async def predict_next(body: PredictRequest):
+    """Predict the next 3 words based on the current text."""
+    print(f"DEBUG PREDICT RECEIVED: {body}")
+    if not body.text.strip():
+        return {"predictions": []}
+    
+    predictions = await predict_next_words(body.text)
+    return predictions
+
 class AnalyzeRequest(BaseModel):
     text: str
 
@@ -101,22 +120,32 @@ class ExplainSelectionRequest(BaseModel):
     selection: str
 
 @app.post("/api/analyze-text")
-def api_analyze_text(req: AnalyzeRequest):
+async def api_analyze_text(req: AnalyzeRequest):
     """Analyze text to find difficult words and definitions."""
-    result = analyze_text(req.text)
+    result = await analyze_text(req.text)
     return result
 
 @app.post("/api/explain-selection")
-def api_explain_selection(req: ExplainSelectionRequest):
+async def api_explain_selection(req: ExplainSelectionRequest):
     """Explain a specific user selection."""
-    explanation = explain_selection(context=req.context, selection=req.selection)
+    explanation = await explain_selection(context=req.context, selection=req.selection)
     return {"explanation": explanation}
 
 @app.post("/api/analyze-notes")
-def api_analyze_notes(req: AnalyzeRequest):
+async def api_analyze_notes(req: AnalyzeRequest):
     """Summarize text into bullet point notes."""
-    result = analyze_notes(req.text)
+    result = await analyze_notes(req.text)
     return result
+
+@app.post("/api/write-suggest")
+async def api_write_suggest(req: AnalyzeRequest):
+    """Provide gentle AI suggestions for writing."""
+    return await provide_gentle_suggestions(req.text)
+
+@app.post("/api/word-predict")
+async def api_word_predict(req: AnalyzeRequest):
+    """Provide word predictions as user types."""
+    return await predict_next_words(req.text)
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +287,26 @@ async def ws_session(websocket: WebSocket):
                             context_text = msg.get("text", "")
                             logger.info("Setting context text (length: %d)", len(context_text))
                             await agent.set_context(context_text)
+                        
+                        elif msg_type == "stop_explanation":
+                            logger.info("Stop command received via WS")
+                            await agent.stop_explanation()
+
+                        elif msg_type == "write_command":
+                            cmd = msg.get("command", "")
+                            current_text = msg.get("current_text", "")
+                            logger.info("Write command: %s", cmd)
+                            # Provide explicit context through the specialized handler
+                            await agent.handle_write_command(cmd, current_text, websocket)
+                        
+                        elif msg_type == "mode_context":
+                            ctx = msg.get("context", "")
+                            mode = msg.get("mode", "")
+                            if mode == "form" and ctx:
+                                logger.info("Form context received, forwarding to Lexi")
+                                # Ingest form analysis into the Live session memory/context
+                                instruction = f"USER CONTEXT (Shared Form):\n{ctx}\n\nUser is looking at this form. Be ready to answer questions about it."
+                                await agent.send_text(instruction)
 
             except WebSocketDisconnect:
                 logger.info("Client disconnected (send path)")

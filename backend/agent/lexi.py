@@ -11,7 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import functools
 from typing import Any, AsyncGenerator
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception,
+)
 
 from google import genai
 from google.genai import types
@@ -19,6 +26,11 @@ from google.genai import types
 from config import get_settings
 
 logger = logging.getLogger(__name__)
+
+def _is_retryable_error(exception):
+    """Check if the error is a transient capacity or rate limit issue."""
+    err_str = str(exception).upper()
+    return "503" in err_str or "429" in err_str or "CAPACITY_EXHAUSTED" in err_str
 
 # ---------------------------------------------------------------------------
 # System prompt — defines the Lexi persona
@@ -34,6 +46,8 @@ Rules:
 - Speak in maximum TWO short, simple sentences.
 - NEVER say "I have...", "I am...", "I think...", or describe your process.
 - ONLY speak the actual answer or explanation.
+- **Content Pushing**: If the user asks you to write a story, draft, or structured text, provide it in your spoken response but also prefix the text with "[PUSH_TO_DASHBOARD]" in your text-only output if available.
+- **Write Mode Support**: If the user is in Write Mode and asks you to write something or fix their writing, prefix the generated text with "[PUSH_TO_WRITE_AREA]" so LexiLens can insert it into the editor for them.
 - If the user asks you to read something, read it aloud naturally.
 """
 
@@ -96,6 +110,11 @@ class LexiAgent:
         self._explaining = False 
         self._session_dead = asyncio.Event()
 
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception(_is_retryable_error),
+    )
     async def connect(self):
         """Connect to Gemini Live API."""
         if self._session:
@@ -104,7 +123,7 @@ class LexiAgent:
         try:
             self._client = genai.Client(
                 api_key=self._settings.GEMINI_API_KEY,
-                http_options={"api_version": "v1alpha"}
+                http_options={'api_version': 'v1alpha'}
             )
 
             config = types.LiveConnectConfig(
@@ -125,20 +144,33 @@ class LexiAgent:
             self._session_dead.clear()
 
             self._session_cm = self._client.aio.live.connect(
-                model="gemini-2.5-flash-native-audio-latest",
+                model=self._settings.LIVE_GEMINI_MODEL or "gemini-2.5-flash-native-audio-preview-12-2025",
                 config=config,
             )
             if self._session_cm:
-                self._session = await self._session_cm.__aenter__()
+                # Use a timeout for the session establishment
+                self._session = await asyncio.wait_for(self._session_cm.__aenter__(), timeout=15.0)
                 logger.info("Connected to Gemini Live API")
             else:
                 raise RuntimeError("Failed to create session context manager")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to Gemini Live: {e}")
+        except asyncio.TimeoutError:
+            logger.error("Timeout establishing Gemini Live connection")
             self._session = None
             self._session_cm = None
             raise
+        except Exception as e:
+            logger.error(f"Failed to connect to Gemini Live: {e}", exc_info=True)
+            self._session = None
+            self._session_cm = None
+            raise
+
+    async def stop_explanation(self):
+        """Immediately stop any ongoing explanation or audio generation."""
+        logger.info("Stop explanation requested in LexiAgent")
+        self._explaining = False
+        # If we have an active session, signaling turn_done helps break loops
+        self._turn_done.set()
+
 
     async def close(self) -> None:
         """Tear down the Live API session gracefully."""
@@ -183,15 +215,15 @@ class LexiAgent:
                                     logger.debug(f"Model thinking (skipped): {part.text[:80]}")
                                 else:
                                     # This is the actual spoken content — forward to chatlog
-                                    cleaned = part.text.strip()
-                                    if cleaned and websocket:
-                                        logger.info(f"AI spoken text: {cleaned[:100]}")
-                                        try:
-                                            await websocket.send_json({
-                                                "type": "transcript",
-                                                "text": cleaned
-                                            })
-                                        except: pass
+                                     cleaned = part.text.strip()
+                                     if cleaned and websocket:
+                                         logger.info(f"AI spoken text: {cleaned[:100]}")
+                                         try:
+                                             await websocket.send_json({
+                                                 "type": "transcript",
+                                                 "text": cleaned
+                                             })
+                                         except: pass
 
                         if response.server_content.turn_complete:
                             self._turn_done.set() # Wake up anyone waiting (like explain())
@@ -219,6 +251,11 @@ class LexiAgent:
     # Pre-computation (Plan D)
     # ------------------------------------------------------------------
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=6),
+        retry=retry_if_exception(_is_retryable_error),
+    )
     async def _get_clean_explanation(self, prompt: str) -> str:
         """Use the standard API to get a clean simple explanation."""
         settings = get_settings()
@@ -229,7 +266,7 @@ class LexiAgent:
                 client = genai.Client(api_key=settings.GEMINI_API_KEY)
                 response = await asyncio.wait_for(
                     client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-2.0-flash",
                         contents=prompt,
                     ),
                     timeout=10.0
@@ -245,20 +282,8 @@ class LexiAgent:
             await asyncio.sleep(0.5)
         return ""
 
-    # ------------------------------------------------------------------
-    # Sentence-by-sentence "Explain Simply" (Plan C)
-    # ------------------------------------------------------------------
-
     async def explain(self, text: str, websocket: Any) -> None:
-        """
-        Explain text one sentence at a time.
-
-        For each sentence:
-        1. Tell the frontend which sentence to highlight.
-        2. Get a simple explanation via standard API.
-        3. Send the explanation text to the chat log.
-        4. Optionally send to Live API for speech.
-        """
+        """Explain text one sentence at a time."""
         sentences = split_sentences(text)
         if not sentences:
             return
@@ -268,23 +293,22 @@ class LexiAgent:
         self._explaining = True
         try:
             for idx, sentence in enumerate(sentences):
-                # 1. Tell frontend to highlight
+                if not self._explaining:
+                    logger.info("Explanation stopped by user signal")
+                    break
+
                 try:
                     await websocket.send_json({"type": "highlight_sentence", "sentence_index": idx})
-                except: break
+                except: pass
 
-                # 2. Get simple explanation
                 clean_text = await self._get_clean_explanation(
                     f"You are a patient reading tutor. Rewrite this sentence in very simple words a 10-year-old can understand. "
                     f"Reply with ONLY the simplified sentence, nothing else.\n\nOriginal: \"{sentence}\""
                 )
                 
                 if not clean_text:
-                    # Skip this sentence silently if we can't explain it
-                    logger.warning(f"Could not explain sentence {idx}, skipping")
                     continue
 
-                # 3. Send clean text to chat log
                 try:
                     await websocket.send_json({
                         "type": "explain_transcript",
@@ -293,7 +317,6 @@ class LexiAgent:
                     })
                 except: pass
 
-                # 4. Optionally prompt Lexi Live to SPEAK the text
                 if self._session and not self._session_dead.is_set():
                     try:
                         self._turn_done.clear()
@@ -302,11 +325,7 @@ class LexiAgent:
                         done = asyncio.ensure_future(self._turn_done.wait())
                         dead = asyncio.ensure_future(self._session_dead.wait())
                         try:
-                            await asyncio.wait(
-                                [done, dead],
-                                return_when=asyncio.FIRST_COMPLETED,
-                                timeout=10.0
-                            )
+                            await asyncio.wait([done, dead], return_when=asyncio.FIRST_COMPLETED, timeout=10.0)
                         finally:
                             done.cancel()
                             dead.cancel()
@@ -317,11 +336,9 @@ class LexiAgent:
         finally:
             self._explaining = False
 
-        # 5. Signal completion
         try:
             await websocket.send_json({"type": "explain_done"})
-        except Exception:
-            pass
+        except: pass
         logger.info("Explain flow complete")
 
     async def set_context(self, text: str) -> None:
@@ -336,7 +353,6 @@ class LexiAgent:
                 f"Remember this new content exclusively. The user may ask you to read it, explain parts of it, or ask questions about it."
             )
             await self._session.send(input=context_msg, end_of_turn=True)
-            # Wait briefly for acknowledgment
             self._turn_done.clear()
             try:
                 await asyncio.wait_for(self._turn_done.wait(), timeout=8.0)
@@ -394,4 +410,38 @@ class LexiAgent:
         try:
             await websocket.send_json({"type": "explain_done"})
         except Exception:
-            pass
+            pass
+            
+    async def send_text(self, text: str) -> None:
+        """Send a text message / instruction to the Live session."""
+        if not self._session:
+            raise RuntimeError("LexiAgent is not connected.")
+        # When sending text, it acts as a user turn/instruction in the Live session
+        await self._session.send(input=text, end_of_turn=True)
+        logger.info(f"Sent text context to Lexi: {text[:50]}...")
+
+    async def handle_write_command(self, command: str, current_text: str, websocket: Any):
+        """Handle AI storytelling or fixing text area in Write Mode."""
+        if not self._session or self._session_dead.is_set():
+            logger.warning("Handle write command failed: No active session")
+            return
+
+        logger.info(f"Handling write command: {command}")
+        
+        # More forceful instruction for the tag
+        prompt = (
+            f"SYSTEM INSTRUCTION: You are in WRITE MODE. \n"
+            f"USER TEXT AREA CONTENT: \"{current_text}\"\n"
+            f"USER COMMAND: \"{command}\"\n\n"
+            f"TASK: If the user wants a story, write it. If they want to fix text, fix it. \n"
+            f"CRITICAL: You MUST prefix the generated text ONLY with the tag [PUSH_TO_WRITE_AREA]. \n"
+            f"Example response: '[PUSH_TO_WRITE_AREA] Once upon a time there was a goat...'\n"
+            f"Speak a very short welcoming sentence like 'Coming right up!' while you push the text."
+        )
+        
+        try:
+            self._turn_done.clear()
+            await self._session.send(input=prompt, end_of_turn=True)
+            logger.info("Sent write command prompt to Live session")
+        except Exception as e:
+            logger.error(f"Failed to send write command: {e}")

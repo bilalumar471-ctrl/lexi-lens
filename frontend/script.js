@@ -1,1167 +1,1172 @@
-// ================= CONFIG =================
+/**
+ * LexiLens Frontend - Refactored for Stability & UX
+ * Main script handling WebSocket, Audio, Vision, and Modes.
+ */
+
+// ================= 1. CONFIG =================
 const CONFIG = {
   WS_URL: "ws://127.0.0.1:8000/ws/session",
   API_URL: "http://127.0.0.1:8000"
 };
 
-const ALLOWED_TYPES = ['application/pdf','image/png','image/jpeg','image/webp'];
+const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
 const MAX_SIZE = 10 * 1024 * 1024;
 
-// ================= STATE =================
-let isRecording = false;
-let videoStream = null;
+// ================= 2. GLOBAL STATE =================
 let ws = null;
 let SESSION_TOKEN = null;
+let isRecording = false;
+let currentMode = "read";
+let isRealContentActive = false; // Track if real text (not mock) is loaded
 
+// Audio
 let audioCtx = null;
-let scriptProcessor = null;
 let micStream = null;
-
+let scriptProcessor = null;
 let playbackContext = null;
 let audioQueue = [];
 let isPlaying = false;
+let activeAudioSource = null;
+let audioPlaybackRate = 1.0;
 
-// Feature B: Web Speech API STT
+// Speech & Subtitles
 let speechRecognizer = null;
 let currentSpeechBubble = null;
-let currentAiSpeechBubble = null;
-let lastAiSpeechTime = 0; // Timestamp to track when AI last spoke to handle echo tail
+let lastAiSpeechTime = 0;
+let isLexiTalking = false;
 
-let mockWords = ["This","is","a","mock","text","for","highlighting","test"];
-let currentWord = 0;
-
-// UI State
-let currentMode = null;
-let originalHTML = ""; // Store original layout
-let analyzedHTML = ""; // Store layout with difficult words replaced
-let rawText = ""; // Store the raw text for explanations
-let currentSelection = ""; // Store current highlighted text
-let isLexiTalking = false; // Server-side talking state
+// Content
+let rawText = "";
+let originalHTML = "";
+let analyzedHTML = "";
+let mockWords = [];
+let window_shouldReconnect = true;
 let reconnectAttempts = 0;
 let reconnectTimeout = null;
-let currentView = "original"; // Track which view is active: "original" or "notes"
-let isRulerActive = false; // Track reading ruler state
-let isBionicActive = false; // Track Bionic reading mode
-let audioPlaybackRate = 1.0; // Dyslexia Audio Speed setting
 
-// ================= INIT =================
+// ================= 3. INITIALIZATION =================
 window.addEventListener("DOMContentLoaded", () => {
-  setupEvents();
-  initSpeechRecognition();
-  initDyslexiaFeatures();
+    setupEvents();
+    initSpeechRecognition();
+    initDyslexiaFeatures();
+    initWriteMode();
+    initFormMode();
+    initVisionFormMode();
 
-  if (!sessionStorage.getItem("privacy_consented")) {
-    document.getElementById("privacy-modal").classList.add("show");
-  } else {
-    updateStatus("offline", "Initializing...");
-    initSession();
-  }
+    if (!sessionStorage.getItem("privacy_consented")) {
+        document.getElementById("privacy-modal")?.classList.add("show");
+    } else {
+        updateStatus("offline", "Initializing...");
+        initSession();
+    }
 
-  renderTextWithHighlight(mockWords.join(" "), false);
-  setupDragAndDrop();
+    renderMockTextForMode("read");
+    setupDragAndDrop();
 });
 
-function sendMessage(type, payload = {}) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      session_token: SESSION_TOKEN,
-      type: type,
-      ...payload
-    }));
-  }
-}
-
-// ================= SESSION =================
 async function initSession() {
-  try {
-    // Phase 2 requires client-side generation, removing the /api/session fetch
-    SESSION_TOKEN = crypto.randomUUID();
-    console.log("Session initialized with token:", SESSION_TOKEN);
-
-    await initWebSocket();
-    await initCamera();
-  } catch (err) {
-    console.error(err);
-    updateStatus("offline", "Session Failed");
-  }
+    try {
+        SESSION_TOKEN = crypto.randomUUID();
+        console.log("[INIT] Session token:", SESSION_TOKEN);
+        await initWebSocket();
+        await initCamera();
+    } catch (err) {
+        console.error("[INIT] Failed:", err);
+        updateStatus("offline", "Session Failed");
+    }
 }
 
 function updateStatus(type, text) {
-  const el = document.getElementById("status-indicator");
-  if (!el) return;
-  el.className = `status-${type}`;
-  el.textContent = text;
+    const el = document.getElementById("status-indicator");
+    if (!el) return;
+    el.className = `status-${type}`;
+    el.textContent = text;
 }
 
-// ================= DYSLEXIA FEATURES =================
-function initDyslexiaFeatures() {
-  const rulerToggle = document.getElementById("ruler-toggle");
-  const ruler = document.getElementById("reading-ruler");
-  const textDisplay = document.querySelector(".text-display");
-  
-  // Initialize global state for the ruler
-  window.isRulerActive = false;
+// ================= 4. WEBSOCKET & CORE BRIDGE ================
+async function initWebSocket() {
+    if (ws) {
+        console.log("[WS] Closing existing connection before new init");
+        ws.close();
+    }
 
-  // Reading Ruler Toggle
-  if (rulerToggle && ruler) {
-    rulerToggle.addEventListener("click", () => {
-      window.isRulerActive = !window.isRulerActive;
-      ruler.classList.toggle("active", window.isRulerActive);
-      rulerToggle.classList.toggle("active-toggle", window.isRulerActive);
-      
-      if (window.isRulerActive) {
-        ruler.style.display = "block";
-      } else {
-        ruler.style.display = "none";
-      }
-    });
-    
-    // Ruler follows mouse Y position
-    document.addEventListener("mousemove", (e) => {
-      if (window.isRulerActive && ruler && textDisplay) {
-        const containerRect = textDisplay.getBoundingClientRect();
+    ws = new WebSocket(CONFIG.WS_URL);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+        console.log("[WS] Connected");
+        reconnectAttempts = 0;
+        updateStatus("online", "Lexi Online");
+        sendMessage("init");
+    };
+
+    ws.onmessage = async (event) => {
+        if (typeof event.data === "string") {
+            handleJsonMessage(JSON.parse(event.data));
+        } else if (event.data instanceof ArrayBuffer) {
+            playAudioChunk(event.data);
+        }
+    };
+
+    ws.onclose = () => {
+        console.log("[WS] Closed");
+        isLexiTalking = false;
+        isPlaying = false;
+        audioQueue = [];
         
-        // Only show ruler if mouse is inside the text display area
-        if (e.clientX >= containerRect.left && e.clientX <= containerRect.right &&
-            e.clientY >= containerRect.top && e.clientY <= containerRect.bottom) {
-          ruler.style.display = "block";
-          ruler.style.top = `${e.clientY - 25}px`; // Fixed position: use viewport clientY
-        } else {
-          ruler.style.display = "none";
-        }
-      }
-    });
-  }
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        if (!window_shouldReconnect) return;
 
-  // Background Color Switcher
-  const colorDots = document.querySelectorAll(".color-dot");
-  colorDots.forEach(dot => {
-    dot.addEventListener("click", (e) => {
-      const newColor = e.target.dataset.color;
-      
-      // Update CSS Variables
-      document.documentElement.style.setProperty("--bg", newColor);
-      
-      // Update text display background as well
-      if (textDisplay) {
-        textDisplay.style.background = newColor === '#FFF8F0' ? '#FFFDF7' : newColor;
-      }
+        const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
+        reconnectAttempts++;
+        updateStatus("reconnecting", `Reconnecting in ${delay/1000}s...`);
+        reconnectTimeout = setTimeout(initSession, delay);
+    };
 
-      // Update active state
-      colorDots.forEach(d => d.classList.remove("active"));
-      e.target.classList.add("active");
-    });
-  });
-
-  // Reading Tools Panel Toggle
-  const toolsBtn = document.getElementById("reading-tools-btn");
-  const toolsPanel = document.getElementById("reading-tools-panel");
-  
-  if (toolsBtn && toolsPanel) {
-    toolsBtn.addEventListener("click", () => {
-      toolsPanel.classList.toggle("hidden");
-      toolsPanel.classList.toggle("active");
-      toolsBtn.classList.toggle("active-toggle");
-    });
-  }
-
-  // Bionic Reading Toggle
-  const bionicToggle = document.getElementById("bionic-toggle");
-  if (bionicToggle) {
-    bionicToggle.addEventListener("click", () => {
-      isBionicActive = !isBionicActive;
-      bionicToggle.classList.toggle("active-toggle", isBionicActive);
-      
-      // Update words in-place instead of a full re-render to preserve analysis classes
-      if (currentView === "original" && rawText) {
-        const wordSpans = document.querySelectorAll("#reading-text .word");
-        wordSpans.forEach(span => {
-          // If the span contains bionic tags and we are toggling off, remove them
-          if (!isBionicActive) {
-             const cleanText = span.textContent;
-             span.innerHTML = "";
-             span.textContent = cleanText;
-          } else {
-             // We are toggling bionic ON
-             const cleanText = span.textContent.trim();
-             if (cleanText.length > 1) {
-               const mid = Math.ceil(cleanText.length / 2);
-               span.innerHTML = `<b>${cleanText.substring(0, mid)}</b>${cleanText.substring(mid)} `;
-             }
-          }
-        });
-        originalHTML = document.getElementById("reading-text").innerHTML;
-      }
-    });
-  }
-
-  // Focus Mode Toggle
-  const focusModeToggle = document.getElementById("focus-mode-toggle");
-  if (focusModeToggle && textDisplay) {
-    focusModeToggle.addEventListener("click", () => {
-      textDisplay.classList.toggle("focus-mode-active");
-      focusModeToggle.classList.toggle("active-toggle");
-    });
-  }
-
-  // Voice Speed Selector
-  const speedSelect = document.getElementById("voice-speed-select");
-  if (speedSelect) {
-    speedSelect.addEventListener("change", (e) => {
-      audioPlaybackRate = parseFloat(e.target.value);
-    });
-  }
+    ws.onerror = (err) => {
+        console.error("[WS] Error:", err);
+    };
 }
 
-// ================= CAMERA =================
-async function initCamera(){
-  try{
-    videoStream = await navigator.mediaDevices.getUserMedia({
-      video:{
-        facingMode:"user",
-        width:{ideal:1280},
-        height:{ideal:720},
-        aspectRatio:16/9
-      }
-    });
-
-    const videoEl = document.getElementById("video");
-    videoEl.srcObject = videoStream;
-    await videoEl.play();
-
-  }catch(err){
-    console.error(err);
-    showInlineError("Cannot access camera.");
-  }
-}
-
-async function takeSnapshot(){
-  const video = document.getElementById("video");
-  if(!videoStream){ showInlineError("No video stream"); return; }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video,0,0);
-
-  const snapshotImg = document.getElementById("snapshot-img");
-  const base64Frame = canvas.toDataURL("image/jpeg");
-  snapshotImg.src = base64Frame;
-  document.getElementById("snapshot-thumb").style.display="block";
-
-  addChat("Scanning text from camera...","user");
-  
-  try {
-    // Convert directly to a pure binary Blob to avoid base64 header corruption in FastAPI
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-    const formData = new FormData();
-    formData.append("file", blob, "snapshot.jpg");
-
-    // Send to standard image OCR endpoint
-    const uploadRes = await fetch(`${CONFIG.API_URL}/api/upload-image`, {
-      method: "POST",
-      body: formData
-    });
-
-    if (!uploadRes.ok) {
-       addChat("Failed to scan snapshot. Ensure the API is reachable.","ai");
-       return;
+function handleJsonMessage(msg) {
+    if (msg.type === "ping") return;
+    if (msg.type === "ready") {
+        updateStatus("online", "Lexi Ready");
+        return;
     }
 
-    const data = await uploadRes.json();
-    if(data.full_text){
-      addChat(`Extracted ${data.words.length} words from your snapshot.`,"ai");
-      // This will automatically process difficult words and set AI context
-      renderTextWithHighlight(data.full_text, true); 
+    switch (msg.type) {
+        case "status":
+            updateStatus(msg.value, msg.text || "");
+            break;
+        case "transcript":
+        case "explain_transcript":
+            handleTranscript(msg);
+            break;
+        case "talking":
+            handleLexiTalkingState(msg.value);
+            break;
+        case "highlight":
+            highlightWord(msg.word_index);
+            break;
+        case "highlight_sentence":
+            highlightSentence(msg.sentence_index);
+            addChat(`📖 Explaining sentence ${msg.sentence_index + 1}...`, "ai");
+            break;
+        case "explain_done":
+            clearSentenceHighlight();
+            addChat("✅ Done explaining! Let me know if you need more help.", "ai");
+            const explainBtn = document.getElementById("explain-btn");
+            if (explainBtn) {
+                explainBtn.disabled = false;
+                explainBtn.style.opacity = "1";
+                document.getElementById("stop-explain-btn").style.display = "none";
+            }
+            break;
+        case "error":
+            if (msg.message === "Capacity Limit" || msg.message === "Connection Failed") {
+                updateStatus("offline", msg.message);
+                window_shouldReconnect = false;
+            } else {
+                addChat(msg.message, "ai");
+            }
+            break;
+    }
+}
+
+function handleTranscript(msg) {
+    const txt = (msg.text || "").trim();
+    if (!txt) return;
+
+    if (txt.includes("[PUSH_TO_DASHBOARD]")) {
+        const storyText = txt.replace("[PUSH_TO_DASHBOARD]", "").trim();
+        addChat("✨ Lexi pushed a new story to your dashboard!", "ai");
+        renderTextWithHighlight(storyText, true);
+        if (currentMode === "write") forceSwitchMode("read");
+    } else if (txt.includes("[PUSH_TO_WRITE_AREA]")) {
+        const cleanText = txt.replace("[PUSH_TO_WRITE_AREA]", "").trim();
+        const textarea = document.getElementById("write-textarea");
+        if (textarea) {
+            textarea.value += (textarea.value.endsWith(" ") || !textarea.value ? "" : "\n") + cleanText;
+            if (currentMode !== "write") forceSwitchMode("write");
+            syncOverlay();
+            saveState();
+        }
     } else {
-      addChat("No text could be found in the image.","ai");
+        addChat(txt, "ai");
     }
-  } catch (err) {
-    console.error("Snapshot scan error:", err);
-    addChat("Error scanning snapshot.","ai");
-  }
 }
 
-async function fetchUrl() {
-  const urlInput = document.getElementById("url-input").value;
-  if(!urlInput) return;
-  
-  addChat("Fetching URL article...","user");
-  
-  try {
-    const res = await fetch(`${CONFIG.API_URL}/api/fetch-url`, {
-      method:"POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: urlInput })
-    });
-    
-    if (!res.ok) {
-       addChat("Failed to fetch URL. Ensure it's reachable.","ai");
-       return;
+function sendMessage(type, payload = {}) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            session_token: SESSION_TOKEN,
+            type: type,
+            ...payload
+        }));
     }
-    
-    const data = await res.json();
-    console.log("[URL FETCH] Response:", data);
-
-    if(data.full_text){
-      mockWords = data.full_text.split(" ");
-      renderTextWithHighlight(data.full_text, true);
-      addChat(`Extracted ${data.words.length} words from the URL.`,"ai");
-    }
-    
-    // Clear input
-    document.getElementById("url-input").value = "";
-    
-  } catch (err) {
-    console.error("[URL FETCH] Error:", err);
-    addChat("Error fetching URL content.","ai");
-  }
 }
 
-// ================= MIC =================
-async function toggleMic(){
-  const btn = document.getElementById("mic-btn");
-
-  // Ensure playback AudioContext exists and is resumed (requires user gesture)
-  if (!playbackContext) {
-    playbackContext = new AudioContext();
-  }
-  if (playbackContext.state === "suspended") {
-    await playbackContext.resume();
-  }
-
-  if(!isRecording){
-    btn.classList.add("recording");
-    isRecording = true;
-    startMic();
-  } else {
-    stopMic();
-    btn.classList.remove("recording");
-    isRecording = false;
-    addChat("Mic stopped.","user");
-  }
+// ================= 5. AUDIO HANDLING =================
+async function playAudioChunk(buffer) {
+    if (!playbackContext) playbackContext = new AudioContext();
+    if (playbackContext.state === "suspended") await playbackContext.resume();
+    
+    audioQueue.push(buffer);
+    if (!isPlaying) drainQueue();
 }
 
-async function startMic(){
-  if(!ws || ws.readyState !== WebSocket.OPEN){
-    addChat("WebSocket not connected.","ai");
-    return;
-  }
+async function drainQueue() {
+    if (audioQueue.length === 0) {
+        isPlaying = false;
+        lastAiSpeechTime = Date.now();
+        return;
+    }
+    isPlaying = true;
 
-  // Start local speech recognition for Chat Log
-  if(speechRecognizer) {
+    const buf = audioQueue.shift();
     try {
-      speechRecognizer.start();
-    } catch(e) {
-      console.log("Speech recognizer already started or error:", e);
+        const audioBuffer = await playbackContext.decodeAudioData(buf.slice(0));
+        const source = playbackContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.playbackRate.value = audioPlaybackRate;
+        source.connect(playbackContext.destination);
+        source.onended = drainQueue;
+        activeAudioSource = source;
+        source.start();
+    } catch {
+        // Fallback for raw PCM if decode fails
+        const pcm = new Int16Array(buf);
+        const float = new Float32Array(pcm.length);
+        for (let i = 0; i < pcm.length; i++) float[i] = pcm[i] / 32768;
+        const audioBuffer = playbackContext.createBuffer(1, float.length, 24000);
+        audioBuffer.copyToChannel(float, 0);
+        const source = playbackContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.playbackRate.value = audioPlaybackRate;
+        source.connect(playbackContext.destination);
+        source.onended = drainQueue;
+        activeAudioSource = source;
+        source.start();
     }
-  }
-
-  micStream = await navigator.mediaDevices.getUserMedia({audio:true});
-  audioCtx = new AudioContext({sampleRate:16000});
-
-  const source = audioCtx.createMediaStreamSource(micStream);
-  scriptProcessor = audioCtx.createScriptProcessor(4096,1,1);
-
-  source.connect(scriptProcessor);
-  scriptProcessor.connect(audioCtx.destination);
-
-  scriptProcessor.onaudioprocess = (e) => {
-    if(!isRecording) return;
-
-    const input = e.inputBuffer.getChannelData(0);
-
-    // downsample 48000 -> 16000
-    const ratio = audioCtx.sampleRate / 16000;
-    const newLength = Math.round(input.length / ratio);
-    const downsampled = new Float32Array(newLength);
-
-    for(let i=0;i<newLength;i++){
-      downsampled[i] = input[Math.floor(i * ratio)];
-    }
-
-    const pcm16 = new Int16Array(downsampled.length);
-    for(let i=0;i<downsampled.length;i++){
-      pcm16[i] = Math.max(-1,Math.min(1,downsampled[i])) * 0x7fff;
-    }
-
-    if(ws.readyState === WebSocket.OPEN){
-      ws.send(pcm16.buffer);
-    }
-  };
-
-  addChat("Listening...","user");
 }
 
-function stopMic(){
-  if(scriptProcessor){ scriptProcessor.disconnect(); scriptProcessor = null; }
-  if(audioCtx){ audioCtx.close(); audioCtx = null; }
-  if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
-  
-  isLexiTalking = false;
-  isPlaying = false;
-  audioQueue = [];
-
-  if(speechRecognizer){
-    try {
-      speechRecognizer.stop();
-    } catch(e) {}
-  }
-}
-
-// ================= FILE UPLOAD =================
-function handleUpload(event){
-  const files = event.target.files;
-
-  for(let f of files){
-    if(!validateFile(f)) return;
-
-    addChat(`Uploaded: ${f.name}`,"user");
-
-    const formData = new FormData();
-    formData.append("file", f);
-
-    fetch(`${CONFIG.API_URL}/api/upload`, {
-      method:"POST",
-      body: formData
-    })
-    .then(r=>r.json())
-    .then(d=>{
-      if(d.full_text){
-        rawText = d.full_text;
-        mockWords = d.full_text.split(/\s+/);
-        renderTextWithHighlight(d.full_text, true);
-      } else if(d.words && Array.isArray(d.words)){
-        mockWords = d.words.map(w=>w.word);
-        renderTextWithHighlight(mockWords.join(" "), true);
-      }
-      addChat("File processed.","ai");
-    }).catch(e=>{
-      console.error("[UPLOAD] Error:", e);
-      addChat("File upload failed.","ai");
-    });
-  }
-}  
-
-function setupDragAndDrop() {
-  const dropZone = document.getElementById("reading-text");
-  if (!dropZone) return;
-
-  dropZone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropZone.classList.add("dragover");
-  });
-
-  dropZone.addEventListener("dragleave", () => {
-    dropZone.classList.remove("dragover");
-  });
-
-  dropZone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dropZone.classList.remove("dragover");
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleUpload({ target: { files: e.dataTransfer.files } });
-    }
-  });
-}
-
-function validateFile(file){
-  if(!ALLOWED_TYPES.includes(file.type)){
-    showInlineError("Only PDF/PNG/JPG/WEBP allowed.");
-    addChat("Invalid file type.","ai");
-    return false;
-  }
-  if(file.size > MAX_SIZE){
-    showInlineError("File too large (max 10MB).");
-    return false;
-  }
-  return true;
-}
-
-// ================= CHAT & STT =================
-function addChat(text,sender){
-  const chatArea = document.getElementById("chat-scroll");
-  const div = document.createElement("div");
-  div.className = `chat-message ${sender}`;
-  div.textContent = text;
-  chatArea.appendChild(div);
-  chatArea.scrollTop = chatArea.scrollHeight;
-  return div;
-}
-
-function initSpeechRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.warn("Web Speech API not supported in this browser.");
-    return;
-  }
-  
-  speechRecognizer = new SpeechRecognition();
-  speechRecognizer.continuous = true;
-  speechRecognizer.interimResults = true;
-  speechRecognizer.lang = 'en-US';
-  
-  speechRecognizer.onresult = (event) => {
-    let interimTranscript = '';
-    let finalTranscript = '';
-
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) {
-        finalTranscript += event.results[i][0].transcript;
-      } else {
-        interimTranscript += event.results[i][0].transcript;
-      }
-    }
-
-    if (finalTranscript || interimTranscript) {
-      // Lexi's audio playing through speakers is picked up by the mic here.
-      // We use this as a free, zero-latency "AI Subtitle" feature since TEXT modality broke the backend.
-      // We extend the AI's "ownership" of the microphone for 1200ms after it stops playing
-      // to absorb any physical room echo/reverb that hits the mic late.
-      const now = Date.now();
-      const inEchoTail = (now - lastAiSpeechTime < 1200);
-      const isAiTurn = isLexiTalking || isPlaying || inEchoTail;
-      
-      const sender = isAiTurn ? "ai" : "user";
-      
-      // If we don't have a bubble, or the sender switched
-      if (!currentSpeechBubble || currentSpeechBubble._sender !== sender) {
-        if (currentSpeechBubble) {
-           currentSpeechBubble.style.opacity = "1";
+function handleLexiTalkingState(isTalking) {
+    isLexiTalking = isTalking;
+    if (!isTalking) {
+        lastAiSpeechTime = Date.now();
+        if (currentSpeechBubble && currentSpeechBubble._sender === "ai") {
+            currentSpeechBubble.style.opacity = "1";
+            currentSpeechBubble = null;
         }
-        currentSpeechBubble = document.createElement("div");
-        currentSpeechBubble.className = `chat-message ${sender}`;
-        currentSpeechBubble._sender = sender;
-        document.getElementById("chat-scroll").appendChild(currentSpeechBubble);
-        currentSpeechBubble.style.opacity = "0.7";
-      }
-      
-      currentSpeechBubble.textContent = finalTranscript || interimTranscript;
-      document.getElementById("chat-scroll").scrollTop = document.getElementById("chat-scroll").scrollHeight;
-      
-      if (finalTranscript) {
-        currentSpeechBubble.style.opacity = "1";
-        currentSpeechBubble = null;
-      }
     }
-  };
-  
-  speechRecognizer.onerror = (event) => {
-    console.error("Speech recognition error", event.error);
-    if(event.error === 'no-speech' && isRecording) {
-      // Ignore no speech errors, we just keep listening
-    }
-  };
-  
-  speechRecognizer.onend = () => {
-    // If we're still recording but the browser auto-stopped the recognizer (happens on pauses), restart it
-    if (isRecording) {
-      try {
-        speechRecognizer.start();
-      } catch(e) {}
-    }
-  };
 }
 
-// ================= TEXT & ANALYSIS =================
-function renderTextWithHighlight(text, isRealContent = false){
-  rawText = text;
-  const container = document.getElementById("reading-text");
-  container.innerHTML = "";
-  currentView = "original";
-  analyzedHTML = ""; // Clear previous notes
+// ================= 6. TEXT RENDERING & HIGHLIGHTS =================
+function renderTextWithHighlight(text, isRealContent = false) {
+    rawText = text;
+    isRealContentActive = isRealContent;
+    const container = document.getElementById("reading-text");
+    if (!container) return;
+    container.innerHTML = "";
+    currentView = "original";
+    analyzedHTML = "";
 
-  // Split text into sentences (by . ! ?)
-  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+    const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
 
-  sentences.forEach((sentence, sIdx) => {
-    const sentenceSpan = document.createElement("span");
-    sentenceSpan.className = "sentence";
-    sentenceSpan.dataset.sentence = sIdx;
+    sentences.forEach((sentence, sIdx) => {
+        const sentenceSpan = document.createElement("span");
+        sentenceSpan.className = "sentence";
+        sentenceSpan.dataset.sentence = sIdx;
 
-    sentence.trim().split(/\s+/).forEach((w, wIdx) => {
-      const wordSpan = document.createElement("span");
-      wordSpan.textContent = w + " ";
-      wordSpan.className = "word";
-      wordSpan.dataset.wordIndex = wIdx;
-      
-      // Inject Bionic Reading spans if active
-      if (isBionicActive && w.length > 1) {
-        const mid = Math.ceil(w.length / 2);
-        wordSpan.innerHTML = `<b>${w.substring(0, mid)}</b>${w.substring(mid)} `;
-      } else {
-        wordSpan.textContent = w + " ";
-      }
-      
-      sentenceSpan.appendChild(wordSpan);
+        sentence.trim().split(/\s+/).forEach((w, wIdx) => {
+            const wordSpan = document.createElement("span");
+            wordSpan.className = "word";
+            wordSpan.dataset.wordIndex = wIdx;
+            
+            if (isBionicActive && w.length > 1) {
+                const mid = Math.ceil(w.length / 2);
+                wordSpan.innerHTML = `<b>${w.substring(0, mid)}</b>${w.substring(mid)} `;
+            } else {
+                wordSpan.textContent = w + " ";
+            }
+            sentenceSpan.appendChild(wordSpan);
+        });
+
+        if (sIdx % 2 !== 0) {
+            sentenceSpan.style.backgroundColor = "rgba(0, 0, 0, 0.03)";
+            sentenceSpan.style.borderRadius = "4px";
+        }
+        container.appendChild(sentenceSpan);
     });
 
-    // Alternating background colors for sentences to prevent line-skipping
-    if (sIdx % 2 !== 0) {
-      sentenceSpan.style.backgroundColor = "rgba(0, 0, 0, 0.03)";
-      sentenceSpan.style.borderRadius = "4px";
-      sentenceSpan.style.padding = "2px 0";
-    }
-
-    container.appendChild(sentenceSpan);
-  });
-
-  // Save the original generated HTML (without highlights)
-  originalHTML = container.innerHTML;
-
-  // Show toggle button container (reset to original view)
-  const toggleContainer = document.getElementById("view-toggle-container");
-  if(toggleContainer) toggleContainer.style.display = "flex";
-  
-  const btnOriginal = document.getElementById("view-original-btn");
-  const btnAnalyzed = document.getElementById("view-analyzed-btn");
-  if(btnOriginal) {
-    btnOriginal.classList.add("active-toggle");
-  }
-  if(btnAnalyzed) {
-    btnAnalyzed.classList.remove("active-toggle");
-    // Reset text inside button just in case
-    btnAnalyzed.innerText = "📝 Summary Notes";
-  }
-
-  // Only trigger analysis for real uploaded content
-  if(isRealContent) {
-    analyzeText(text);
-    generateNotes(text);
+    originalHTML = container.innerHTML;
     
-    // Send context to Live API session so AI knows about the text
-    sendMessage("set_context", { text: text });
-  }
+    if (isRealContent) {
+        analyzeText(text);
+        generateNotes(text);
+        sendMessage("set_context", { text: text });
+    }
 }
 
 async function analyzeText(text) {
-  try {
-    const res = await fetch(`${CONFIG.API_URL}/api/analyze-text`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text })
-    });
-    const data = await res.json();
-    
-    if (data.difficult_words && data.difficult_words.length > 0) {
-      // Instead of relying on fragile event listeners that get destroyed by innerHTML assignments,
-      // we store the definitions globally and use Event Delegation on document.body.
-      window.difficultDictMap = {};
-      
-      data.difficult_words.forEach(item => {
-        const word = item.word;
-        const explanation = item.explanation;
-        window.difficultDictMap[word.trim().toLowerCase()] = explanation;
-      });
-
-      const liveContainer = document.getElementById("reading-text");
-      if(!liveContainer) return;
-
-      const liveSpans = liveContainer.querySelectorAll(".word");
-      liveSpans.forEach(span => {
-         const cleanSpanText = span.textContent.trim().replace(/[.,!?;:]/g, "").toLowerCase();
-         if (window.difficultDictMap[cleanSpanText] && !span.classList.contains("difficult-word")) {
-             span.classList.add("difficult-word");
-             // The explanation is bound purely through CSS class + global dictionary lookup now
-             span.setAttribute("data-word", cleanSpanText);
-         }
-      });
-      
-      // Save the LIVE innerHTML (which now includes the classes) 
-      originalHTML = liveContainer.innerHTML;
-      
-      requestAnimationFrame(() => {
-        addChat("💡 Difficult words are highlighted in the Original Text.","ai");
-      });
-    }
-  } catch(e) {
-    console.error("Analysis failed:", e);
-  }
-}
-
-// Global Event Delegation for Tooltips
-let globalTooltip = null;
-
-document.addEventListener("mouseover", (e) => {
-    const target = e.target.closest(".difficult-word");
-    if (!target) return;
-    
-    const wordKey = target.getAttribute("data-word");
-    if (!wordKey || !window.difficultDictMap || !window.difficultDictMap[wordKey]) return;
-    
-    if (!globalTooltip) {
-        globalTooltip = document.createElement("div");
-        globalTooltip.className = "tooltip";
-        document.body.appendChild(globalTooltip);
-    }
-    
-    globalTooltip.textContent = window.difficultDictMap[wordKey];
-    globalTooltip.style.visibility = "visible";
-    globalTooltip.style.opacity = "1";
-    
-    const rect = target.getBoundingClientRect();
-    let leftPos = rect.left + (rect.width / 2);
-    globalTooltip.style.top = (rect.bottom + 8) + 'px';
-    globalTooltip.style.left = leftPos + 'px';
-    globalTooltip.style.transform = 'translateX(-50%)';
-    globalTooltip.style.setProperty('--arrow-left', '50%');
-    globalTooltip.style.setProperty('--arrow-margin', '-6px');
-    
-    requestAnimationFrame(() => {
-        const tRect = globalTooltip.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-        if (tRect.right > viewportWidth - 20) {
-            globalTooltip.style.transform = 'none';
-            globalTooltip.style.left = 'auto';
-            globalTooltip.style.right = '20px';
-            const tRectNew = globalTooltip.getBoundingClientRect();
-            const arrowOffset = (rect.left + rect.width / 2) - tRectNew.left;
-            globalTooltip.style.setProperty('--arrow-left', arrowOffset + 'px');
-            globalTooltip.style.setProperty('--arrow-margin', '-6px'); 
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/analyze-text`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (data.difficult_words?.length) {
+            window.difficultDictMap = {};
+            data.difficult_words.forEach(item => {
+                window.difficultDictMap[item.word.trim().toLowerCase()] = item.explanation;
+            });
+            
+            const liveSpans = document.querySelectorAll("#reading-text .word");
+            liveSpans.forEach(span => {
+                const clean = span.textContent.trim().replace(/[.,!?;:]/g, "").toLowerCase();
+                if (window.difficultDictMap[clean]) {
+                    span.classList.add("difficult-word");
+                    span.setAttribute("data-word", clean);
+                }
+            });
+            originalHTML = document.getElementById("reading-text").innerHTML;
+            addChat("💡 Difficult words are highlighted in the Original Text.", "ai");
         }
-    });
-});
-
-document.addEventListener("mouseout", (e) => {
-    const target = e.target.closest(".difficult-word");
-    if (!target && globalTooltip) {
-        globalTooltip.style.visibility = "hidden";
-        globalTooltip.style.opacity = "0";
+    } catch (e) {
+        console.error("Analysis failed:", e);
     }
-});
-
-const textContainerDisplay = document.querySelector('.text-display');
-if (textContainerDisplay) {
-    textContainerDisplay.addEventListener('scroll', () => {
-        if (globalTooltip) {
-            globalTooltip.style.visibility = 'hidden';
-            globalTooltip.style.opacity = '0';
-        }
-    }, {passive: true});
 }
 
 async function generateNotes(text) {
-  const btnAnalyzed = document.getElementById("view-analyzed-btn");
-  if (btnAnalyzed) {
-    btnAnalyzed.innerText = "⏳ Generating Notes...";
-    btnAnalyzed.style.opacity = "0.7";
-  }
+    const btn = document.getElementById("view-analyzed-btn");
+    if (btn) btn.innerText = "⏳ Generating Notes...";
 
-  try {
-    const res = await fetch(`${CONFIG.API_URL}/api/analyze-notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text })
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/analyze-notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (data.notes?.length) {
+            let html = `<div style="padding:10px;"><h3>Summary Notes</h3><ul>`;
+            data.notes.forEach(n => html += `<li>${n}</li>`);
+            html += `</ul></div>`;
+            analyzedHTML = html;
+            if (btn) btn.innerText = "📝 Summary Notes";
+            addChat("📝 Summary Notes ready!", "ai");
+        }
+    } catch (e) {
+        console.error("Notes failed:", e);
+    }
+}
+
+// ================= 7. DYSLEXIA FEATURES =================
+let isBionicActive = false;
+let isRulerActive = false;
+
+function initDyslexiaFeatures() {
+    const rulerToggle = document.getElementById("ruler-toggle");
+    const ruler = document.getElementById("reading-ruler");
+    const textDisplay = document.querySelector(".text-display");
+
+    rulerToggle?.addEventListener("click", () => {
+        isRulerActive = !isRulerActive;
+        ruler?.classList.toggle("active", isRulerActive);
+        rulerToggle.classList.toggle("active-toggle", isRulerActive);
     });
-    const data = await res.json();
+
+    document.addEventListener("mousemove", (e) => {
+        if (isRulerActive && ruler && textDisplay) {
+            const rect = textDisplay.getBoundingClientRect();
+            if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                ruler.style.display = "block";
+                ruler.style.top = `${e.clientY - 25}px`;
+            } else {
+                ruler.style.display = "none";
+            }
+        }
+    });
+
+    const bionicToggle = document.getElementById("bionic-toggle");
+    bionicToggle?.addEventListener("click", () => {
+        isBionicActive = !isBionicActive;
+        bionicToggle.classList.toggle("active-toggle", isBionicActive);
+        if (rawText) renderTextWithHighlight(rawText, false);
+    });
+
+    document.querySelectorAll(".color-dot").forEach(dot => {
+        dot.addEventListener("click", (e) => {
+            const color = e.target.dataset.color;
+            document.documentElement.style.setProperty("--bg", color);
+            document.querySelectorAll(".color-dot").forEach(d => d.classList.remove("active"));
+            e.target.classList.add("active");
+        });
+    });
+}
+
+// ================= 8. CAMERA & SNAPSHOT =================
+async function initCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        const video = document.getElementById("video");
+        if (video) {
+            video.srcObject = stream;
+            video.addEventListener('loadedmetadata', () => video.play());
+        }
+    } catch (err) {
+        console.error("Camera access failed", err);
+    }
+}
+
+async function takeSnapshot() {
+    const video = document.getElementById("video");
+    if (!video) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.9));
+    const formData = new FormData();
+    formData.append("file", blob, "snapshot.jpg");
+
+    addChat("Scanning text from camera...", "user");
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/upload-image`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.full_text) {
+            renderTextWithHighlight(data.full_text, true);
+            finalizeReadSource();
+        } else {
+            addChat("No text found in snapshot.", "ai");
+        }
+    } catch (err) {
+        console.error("Snapshot error:", err);
+    }
+}
+
+// ================= 9. WRITE MODE LOGIC =================
+let writeHistory = [];
+let writeRedoStack = [];
+let suggestionTooltip = null;
+
+function initWriteMode() {
+    const textarea = document.getElementById("write-textarea");
+    if (!textarea) return;
+
+    textarea.addEventListener("input", () => {
+        syncOverlay();
+        saveState();
+        debouncedPredict(textarea.value);
+        debouncedSuggest(textarea.value);
+    });
+    textarea.addEventListener("scroll", syncOverlay);
+
+    document.getElementById("write-undo-btn")?.addEventListener("click", undoWrite);
+    document.getElementById("write-redo-btn")?.addEventListener("click", redoWrite);
+    document.getElementById("write-readback-btn")?.addEventListener("click", () => speakText(textarea.value));
+    document.getElementById("write-submit-btn")?.addEventListener("click", () => fetchSuggestions(textarea.value));
+
+    // Mic buttons
+    document.getElementById("write-stt-btn")?.addEventListener("click", () => startWriteMic(true)); // Pure STT
+    document.getElementById("write-ai-btn")?.addEventListener("click", () => startWriteMic(false)); // AI Command
     
-    if (data.notes && data.notes.length > 0) {
-      let notesHtmlContent = `<div style="padding: 10px;"><h3>Summary Notes</h3><ul>`;
-      data.notes.forEach(note => {
-        notesHtmlContent += `<li style="margin-bottom: 8px; line-height: 1.5;">${note}</li>`;
-      });
-      notesHtmlContent += `</ul></div>`;
-      
-      
-      analyzedHTML = notesHtmlContent;
-      requestAnimationFrame(() => {
-        if (btnAnalyzed) {
-          btnAnalyzed.innerText = "📝 Summary Notes";
-          btnAnalyzed.style.opacity = "1";
+    // Suggestion interactions - Event Delegation on the overlay
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (overlay) {
+        overlay.onclick = (e) => {
+            const hint = e.target.closest(".error-hint");
+            if (hint) {
+                const correction = hint.getAttribute("data-correction");
+                if (correction && correction !== "Suggestion available") {
+                    applyCorrection(hint.textContent, correction);
+                }
+            }
+        };
+        // Re-init hover logic if overlay is hovered
+        overlay.onmouseenter = () => {
+            if (overlay.querySelectorAll(".error-hint").length > 0) {
+                initHoverSuggestions();
+            }
+        };
+    }
+}
+
+function syncOverlay() {
+    const textarea = document.getElementById("write-textarea");
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (textarea && overlay) {
+        // If we have error-hints, we might want to skip syncing if the plain text matches
+        const currentOverlayText = overlay.textContent.replace(/\u200b/g, "");
+        if (currentOverlayText === textarea.value) {
+            overlay.scrollTop = textarea.scrollTop;
+            return;
         }
-        addChat("📝 Summary Notes ready! Click the 'Summary Notes' button.","ai");
-      });
+        
+        overlay.textContent = textarea.value + "\u200b";
+        overlay.scrollTop = textarea.scrollTop;
+    }
+}
+
+function saveState() {
+    const val = document.getElementById("write-textarea").value;
+    if (!writeHistory.length || writeHistory[writeHistory.length-1] !== val) {
+        writeHistory.push(val);
+        if (writeHistory.length > 50) writeHistory.shift();
+        writeRedoStack = [];
+    }
+    localStorage.setItem("lexi_write_session", val);
+}
+
+function undoWrite() {
+    if (writeHistory.length > 1) {
+        writeRedoStack.push(writeHistory.pop());
+        const textarea = document.getElementById("write-textarea");
+        textarea.value = writeHistory[writeHistory.length-1];
+        syncOverlay();
+    }
+}
+
+function redoWrite() {
+    if (writeRedoStack.length) {
+        const state = writeRedoStack.pop();
+        writeHistory.push(state);
+        document.getElementById("write-textarea").value = state;
+        syncOverlay();
+    }
+}
+
+const debouncedPredict = debounce(async (text) => {
+    if (text.length < 3) return;
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/predict-next`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        const div = document.getElementById("prediction-bar");
+        if (div && data.predictions) {
+            div.innerHTML = "";
+            data.predictions.forEach(p => {
+                const item = document.createElement("div");
+                item.className = "prediction-item";
+                item.textContent = p;
+                item.onclick = () => {
+                    const textarea = document.getElementById("write-textarea");
+                    const space = textarea.value.endsWith(" ") ? "" : " ";
+                    textarea.value += space + p + " ";
+                    div.innerHTML = "";
+                    syncOverlay();
+                    saveState();
+                };
+                div.appendChild(item);
+            });
+        }
+    } catch {}
+}, 400);
+
+const debouncedSuggest = debounce((text) => {
+    if (text.length > 10) fetchSuggestions(text);
+}, 2000);
+
+async function fetchSuggestions(text) {
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (!overlay) return;
+
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/write-suggest`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        
+        let html = text + "\u200b";
+        if (data.suggestions?.length) {
+            data.suggestions.forEach(s => {
+                const match = s.match(/"([^"]+)"/);
+                const corrMatch = s.match(/with "([^"]+)"|to "([^"]+)"/i);
+                if (match && match[1]) {
+                    const word = match[1];
+                    const corr = corrMatch ? (corrMatch[1] || corrMatch[2]) : "Lexi suggests fixing this";
+                    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+                    html = html.replace(regex, `<span class="error-hint" data-correction="${corr}">$1</span>`);
+                }
+            });
+            overlay.innerHTML = html;
+            initHoverSuggestions();
+        }
+    } catch {}
+}
+
+function initHoverSuggestions() {
+    const hints = document.querySelectorAll(".error-hint");
+    if (!suggestionTooltip) {
+        suggestionTooltip = document.createElement("div");
+        suggestionTooltip.className = "suggestion-tooltip";
+        suggestionTooltip.style.display = "none";
+        document.body.appendChild(suggestionTooltip);
+        
+        suggestionTooltip.onmouseenter = () => {
+            clearTimeout(suggestionTooltip._hideTimeout);
+            suggestionTooltip.style.display = "block";
+        };
+        suggestionTooltip.onmouseleave = () => {
+            suggestionTooltip.style.display = "none";
+        };
+    }
+
+    hints.forEach(hint => {
+        hint.onmouseover = () => {
+            clearTimeout(suggestionTooltip._hideTimeout);
+            const corr = hint.getAttribute("data-correction");
+            const original = hint.textContent;
+            
+            suggestionTooltip.innerHTML = `
+                <span class="label">Lexi Suggests:</span>
+                <span class="value" style="color:var(--g1); cursor:pointer; text-decoration:underline;" 
+                      onclick="applyCorrection('${original.replace(/'/g, "\\'")}', '${corr.replace(/'/g, "\\'")}')">${corr}</span>
+                <div style="font-size:10px; color:#999; margin-top:8px;">Click to apply correction</div>
+            `;
+            
+            suggestionTooltip.style.display = "block";
+            const rect = hint.getBoundingClientRect();
+            suggestionTooltip.style.left = Math.max(10, rect.left) + "px";
+            // Ensure tooltip is not off-top
+            const topPos = rect.top - suggestionTooltip.offsetHeight - 10;
+            suggestionTooltip.style.top = (topPos > 10 ? topPos : rect.bottom + 10) + "px";
+        };
+        
+        hint.onmouseout = () => {
+            suggestionTooltip._hideTimeout = setTimeout(() => {
+                suggestionTooltip.style.display = "none";
+            }, 200);
+        };
+    });
+}
+
+window.applyCorrection = function(original, replacement) {
+    const textarea = document.getElementById("write-textarea");
+    if (!textarea) return;
+    
+    // Use a precise replace for the word
+    const oldText = textarea.value;
+    const regex = new RegExp(`\\b${original}\\b`, 'i');
+    textarea.value = oldText.replace(regex, replacement);
+    
+    if (suggestionTooltip) suggestionTooltip.style.display = "none";
+    syncOverlay();
+    saveState();
+    addChat(`✅ Fixed "${original}" to "${replacement}"`, "ai");
+};
+
+// ================= 10. VOICE & STT =================
+function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    speechRecognizer = new SpeechRecognition();
+    speechRecognizer.continuous = true;
+    speechRecognizer.interimResults = true;
+    speechRecognizer.lang = 'en-US';
+
+    speechRecognizer.onresult = (event) => {
+        let final = "";
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) final += event.results[i][0].transcript;
+            else interim += event.results[i][0].transcript;
+        }
+
+        if (final || interim) {
+            const now = Date.now();
+            const isAi = isLexiTalking || isPlaying || (now - lastAiSpeechTime < 1200);
+            
+            if (!isAi && (isPlaying || isLexiTalking)) {
+                console.log("[BARGE-IN] User interrupted AI");
+                cancelAiSpeech();
+            }
+
+            const sender = isAi ? "ai" : "user";
+            if (!currentSpeechBubble || currentSpeechBubble._sender !== sender) {
+                if (currentSpeechBubble) currentSpeechBubble.style.opacity = "1";
+                currentSpeechBubble = document.createElement("div");
+                currentSpeechBubble.className = `chat-message ${sender}`;
+                currentSpeechBubble._sender = sender;
+                document.getElementById("chat-scroll").appendChild(currentSpeechBubble);
+            }
+            currentSpeechBubble.textContent = final || interim;
+            document.getElementById("chat-scroll").scrollTop = document.getElementById("chat-scroll").scrollHeight;
+            if (final) {
+                currentSpeechBubble.style.opacity = "1";
+                currentSpeechBubble = null;
+            }
+        }
+    };
+
+    speechRecognizer.onend = () => { if (isRecording) try { speechRecognizer.start(); } catch{} };
+}
+
+let isWriteMicOn = false;
+let writeSpeechRecognizer = null;
+
+function toggleWriteMic() {
+    if (!isWriteMicOn) startWriteMic(true);
+    else stopWriteMic();
+}
+
+function startWriteMic(isSTT = true) {
+    if (isWriteMicOn) { stopWriteMic(); return; }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    
+    isWriteMicOn = true;
+    const btn = document.getElementById(isSTT ? "write-stt-btn" : "write-ai-btn");
+    if (btn) btn.classList.add("recording");
+    
+    writeSpeechRecognizer = new SpeechRecognition();
+    writeSpeechRecognizer.continuous = true;
+    writeSpeechRecognizer.interimResults = true;
+    writeSpeechRecognizer.lang = 'en-US';
+
+    writeSpeechRecognizer.onresult = (event) => {
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) final += event.results[i][0].transcript;
+        }
+        if (final) {
+            if (isSTT) {
+                const ta = document.getElementById("write-textarea");
+                ta.value += (ta.value.endsWith(" ") || !ta.value ? "" : " ") + final;
+                syncOverlay();
+                saveState();
+            } else {
+                addChat(`🗣 Command: "${final}"`, "user");
+                let cleanCmd = final;
+                ["let's see", "let me", "lassie", "lexie"].forEach(v => {
+                    cleanCmd = cleanCmd.replace(new RegExp(v, "gi"), "Lexi");
+                });
+                sendMessage("write_command", { command: cleanCmd, current_text: document.getElementById("write-textarea").value });
+                stopWriteMic();
+            }
+        }
+    };
+    writeSpeechRecognizer.onerror = () => stopWriteMic();
+    writeSpeechRecognizer.onend = () => { if (isWriteMicOn) writeSpeechRecognizer.start(); };
+    writeSpeechRecognizer.start();
+    addChat(isSTT ? "Dictating..." : "Say 'Lexi, help me write...'", "user");
+}
+
+function stopWriteMic() {
+    isWriteMicOn = false;
+    document.getElementById("write-stt-btn")?.classList.remove("recording");
+    document.getElementById("write-ai-btn")?.classList.remove("recording");
+    if (writeSpeechRecognizer) {
+        writeSpeechRecognizer.onend = null;
+        try { writeSpeechRecognizer.stop(); } catch{}
+        writeSpeechRecognizer = null;
+    }
+}
+
+// ================= 11. FORM MODE =================
+let formFields = [];
+let currentFormFieldIndex = 0;
+
+function initFormMode() {
+    const form = document.getElementById("mock-dyslexia-form");
+    if (!form) return;
+    formFields = Array.from(form.querySelectorAll("input, textarea, select"));
+    formFields.forEach((field, idx) => {
+        field.onfocus = () => {
+            currentFormFieldIndex = idx;
+            highlightFormField(idx);
+            updateFormProgress();
+            const group = field.closest(".form-field-group");
+            const label = group?.querySelector("label")?.textContent || "";
+            const hint = group?.dataset.hint || "";
+            speakText(`${label}. ${hint}`);
+        };
+        field.oninput = updateFormProgress;
+    });
+
+    document.getElementById("form-prev-btn")?.addEventListener("click", () => {
+        if (currentFormFieldIndex > 0) formFields[--currentFormFieldIndex].focus();
+    });
+    document.getElementById("form-next-btn")?.addEventListener("click", () => {
+        if (currentFormFieldIndex < formFields.length - 1) formFields[++currentFormFieldIndex].focus();
+        else addChat("Form complete! Well done.", "ai");
+    });
+}
+
+function highlightFormField(idx) {
+    document.querySelectorAll(".form-field-group").forEach(g => g.classList.remove("focused-field"));
+    const group = formFields[idx]?.closest(".form-field-group");
+    if (group) {
+        group.classList.add("focused-field");
+        group.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+}
+
+function updateFormProgress() {
+    const filled = formFields.filter(f => f.value.trim().length > 0).length;
+    const percent = Math.round((filled / (formFields.length || 1)) * 100);
+    const bar = document.getElementById("form-progress-bar");
+    if (bar) bar.style.width = percent + "%";
+    const text = document.getElementById("form-progress-text");
+    if (text) text.textContent = percent + "% Complete";
+}
+
+// ================= 12. VISION FORM MODE =================
+let formStream = null;
+
+function initVisionFormMode() {
+    document.getElementById("form-share-btn")?.addEventListener("click", startFormScreenShare);
+    document.getElementById("form-upload-btn")?.addEventListener("click", triggerFormImageUpload);
+    document.getElementById("form-switch-source")?.addEventListener("click", resetFormSource);
+}
+
+async function startFormScreenShare() {
+    try {
+        formStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const video = document.getElementById("form-screen-video");
+        video.srcObject = formStream;
+        video.style.display = "block";
+        document.getElementById("form-upload-img").style.display = "none";
+        showFormActiveView();
+        addChat("Screen sharing active!", "ai");
+        formStream.getTracks()[0].onended = resetFormSource;
+    } catch (err) { console.error(err); }
+}
+
+function triggerFormImageUpload() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (re) => {
+                const img = document.getElementById("form-upload-img");
+                img.src = re.target.result;
+                img.style.display = "block";
+                document.getElementById("form-screen-video").style.display = "none";
+                showFormActiveView();
+                uploadFormFile(file);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    input.click();
+}
+
+async function uploadFormFile(file) {
+    addChat("Analyzing form...", "ai");
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/upload`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.analysis) {
+            addChat("Form analyzed. You can now ask questions.", "ai");
+            sendMessage("mode_context", { mode: "form", context: data.analysis });
+        }
+    } catch {}
+}
+
+function showFormActiveView() {
+    document.getElementById("form-source-selector").style.display = "none";
+    document.getElementById("form-active-view").style.display = "flex";
+}
+
+function resetFormSource() {
+    if (formStream) formStream.getTracks().forEach(t => t.stop());
+    formStream = null;
+    document.getElementById("form-source-selector").style.display = "block";
+    document.getElementById("form-active-view").style.display = "none";
+}
+
+// ================= 13. UI HELPERS & EVENTS =================
+function setupEvents() {
+    document.getElementById("mic-btn")?.addEventListener("click", toggleMic);
+    document.getElementById("read-snapshot-btn")?.addEventListener("click", takeSnapshot);
+    document.getElementById("read-upload-btn")?.addEventListener("click", () => document.getElementById("file-input").click());
+    document.getElementById("change-source-btn")?.addEventListener("click", resetReadSource);
+    document.getElementById("file-input")?.addEventListener("change", (e) => handleUpload(e.target.files));
+    document.getElementById("url-submit-btn")?.addEventListener("click", fetchUrl);
+    document.getElementById("mode-toggle")?.addEventListener("click", () => {
+        const menu = document.getElementById("mode-dropdown");
+        menu.style.display = (menu.style.display === "flex" ? "none" : "flex");
+    });
+    document.getElementById("mode-dropdown")?.addEventListener("click", (e) => {
+        const mode = e.target.dataset.mode;
+        if (mode) forceSwitchMode(mode);
+    });
+    document.getElementById("font-increase")?.addEventListener("click", increaseFont);
+    document.getElementById("font-decrease")?.addEventListener("click", decreaseFont);
+    document.getElementById("explain-btn")?.addEventListener("click", triggerExplain);
+    document.getElementById("stop-explain-btn")?.addEventListener("click", cancelAiExplanation);
+    document.getElementById("consent-btn")?.addEventListener("click", () => {
+        sessionStorage.setItem("privacy_consented", "true");
+        document.getElementById("privacy-modal").classList.remove("show");
+        initSession();
+    });
+    
+    // Global delegation for difficult word tooltips
+    document.addEventListener("mouseover", handleGlobalTooltip);
+}
+
+function toggleMic() {
+    if (!isRecording) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            addChat("Connecting to Lexi...", "ai");
+            initWebSocket();
+            return;
+        }
+        isRecording = true;
+        document.getElementById("mic-btn").classList.add("recording");
+        startMic();
     } else {
-      // Fallback if empty array returned
-      if (btnAnalyzed) {
-        btnAnalyzed.innerText = "⚠️ generation failed";
-      }
+        isRecording = false;
+        document.getElementById("mic-btn").classList.remove("recording");
+        stopMic();
     }
-  } catch(e) {
-    console.error("Notes generation failed:", e);
-    if (btnAnalyzed) {
-      btnAnalyzed.innerText = "⚠️ error";
-    }
-  }
 }
 
-function highlightWord(index){
-  const spans = document.querySelectorAll("#reading-text .word");
-  spans.forEach(s=>s.classList.remove("active-word"));
-  if(spans[index]){
-    spans[index].classList.add("active-word");
-    spans[index].scrollIntoView({behavior:"smooth", block:"center"});
-  }
+async function startMic() {
+    try {
+        if (speechRecognizer) speechRecognizer.start();
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new AudioContext({ sampleRate: 16000 });
+        const source = audioCtx.createMediaStreamSource(micStream);
+        scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+        source.connect(scriptProcessor);
+        scriptProcessor.connect(audioCtx.destination);
+        scriptProcessor.onaudioprocess = (e) => {
+            if (!isRecording) return;
+            const input = e.inputBuffer.getChannelData(0);
+            const pcm16 = new Int16Array(input.length);
+            for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7fff;
+            if (ws?.readyState === WebSocket.OPEN) ws.send(pcm16.buffer);
+        };
+        addChat("Listening...", "user");
+    } catch (err) { console.error(err); isRecording = false; }
 }
 
-function highlightSentence(index){
-  // Remove previous sentence highlight
-  document.querySelectorAll("#reading-text .sentence").forEach(s => {
-    s.classList.remove("active-sentence");
-  });
-  // Highlight the current sentence
-  const sentence = document.querySelector(`#reading-text .sentence[data-sentence="${index}"]`);
-  if(sentence){
-    sentence.classList.add("active-sentence");
-    sentence.scrollIntoView({behavior:"smooth", block:"center"});
-  }
+function stopMic() {
+    if (scriptProcessor) scriptProcessor.disconnect();
+    if (audioCtx) audioCtx.close();
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    if (speechRecognizer) try { speechRecognizer.stop(); } catch{}
+    cancelAiSpeech();
 }
 
-function clearSentenceHighlight(){
-  document.querySelectorAll("#reading-text .sentence").forEach(s => {
-    s.classList.remove("active-sentence");
-  });
-}
-
-// ================= WEBSOCKET =================
-async function initWebSocket(){
-  ws = new WebSocket(CONFIG.WS_URL);
-  ws.binaryType = "arraybuffer";
-
-  ws.onopen = () => {
-    console.log("[WS] Connected");
-    reconnectAttempts = 0;
-    updateStatus("online", "Lexi Online");
-    sendMessage("init");
-  };
-
-  ws.onmessage = async(event) => {
-      if(typeof event.data === "string"){
-      const msg = JSON.parse(event.data);
-      if(msg.type==="ping") return; // Silent heartbeat
-      if(msg.type==="ready") {
-          updateStatus("online", "Lexi Ready");
-          return;
-      }
-      if(msg.type==="highlight") highlightWord(msg.word_index);
-      if(msg.type==="highlight") highlightWord(msg.word_index);
-      if(msg.type==="talking") {
-          if (msg.value === true) {
-              isLexiTalking = true;
-          } else {
-              isLexiTalking = false;
-              lastAiSpeechTime = Date.now();
-              // When AI stops talking, finalize the AI speech bubble so the user gets a fresh one
-              if (currentSpeechBubble && currentSpeechBubble._sender === "ai") {
-                  currentSpeechBubble.style.opacity = "1";
-                  currentSpeechBubble = null;
-              }
-          }
-      }
-      if(msg.type==="error") {
-          if (msg.message === "Capacity Limit" || msg.message === "Connection Failed") {
-              updateStatus("offline", msg.message);
-              window.shouldReconnect = false; // Prevent infinite loop if API is exhausted
-          } else {
-              addChat(msg.message, "ai");
-          }
-      }
-
-      // Plan C: sentence-by-sentence explanation
-      if(msg.type==="highlight_sentence"){
-        highlightSentence(msg.sentence_index);
-        addChat(`📖 Explaining sentence ${msg.sentence_index + 1}...`,"ai");
-      }
-      if(msg.type==="transcript" || msg.type==="explain_transcript"){
-        const txt = (msg.text || "").trim();
-        if (txt.length > 0) {
-          addChat(txt, "ai");
-        }
-      }
-      if(msg.type==="explain_done"){
-        clearSentenceHighlight();
-        addChat("✅ Done explaining! Let me know if you need more help.","ai");
-        const btn = document.getElementById("explain-btn");
-        if(btn) {
-          btn.disabled = false;
-          btn.style.opacity = "1";
-        }
-      }
-    }
-    if(event.data instanceof ArrayBuffer){
-      playAudioChunk(event.data);
-    }
-  };
-
-  ws.onclose = () => {
-    console.log("[WS] Closed");
+function cancelAiSpeech() {
     isLexiTalking = false;
     isPlaying = false;
     audioQueue = [];
-    
-    if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    
-    // Stop reconnecting if it was a fatal error
-    if (window.shouldReconnect === false) {
-       console.log("Auto-reconnect disabled due to fatal error.");
-       return;
+    if (activeAudioSource) { try { activeAudioSource.stop(); } catch{} activeAudioSource = null; }
+}
+
+function cancelAiExplanation() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    cancelAiSpeech();
+    sendMessage("stop_explanation", {});
+    const btn = document.getElementById("explain-btn");
+    if (btn) { btn.disabled = false; btn.style.opacity = "1"; }
+    document.getElementById("stop-explain-btn").style.display = "none";
+}
+
+async function triggerExplain() {
+    if (!rawText?.trim()) {
+        addChat("Please upload some text first!", "ai");
+        return;
     }
-    
-    const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
-    reconnectAttempts++;
-    
-    updateStatus("reconnecting", `Reconnecting in ${delay/1000}s...`);
-    reconnectTimeout = setTimeout(initSession, delay);
-  };
-}
-
-// ================= AUDIO =================
-async function playAudioChunk(buffer){
-  // Lazily create playbackContext if not yet created
-  if (!playbackContext) {
-    playbackContext = new AudioContext();
-  }
-  if (playbackContext.state === "suspended") {
-    await playbackContext.resume();
-  }
-  
-  audioQueue.push(buffer);
-  if(!isPlaying) drainQueue();
-}
-
-async function drainQueue(){
-  if(audioQueue.length===0){
-    isPlaying = false;
-    lastAiSpeechTime = Date.now();
-    return;
-  }
-  isPlaying=true;
-
-  if (!playbackContext) {
-    playbackContext = new AudioContext();
-  }
-
-  const buf = audioQueue.shift();
-  try{
-    const audioBuffer = await playbackContext.decodeAudioData(buf.slice(0));
-    const source = playbackContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = audioPlaybackRate; // Apply custom speed
-    source.connect(playbackContext.destination);
-    source.onended = drainQueue;
-    source.start();
-  }catch{
-    const pcm = new Int16Array(buf);
-    const float = new Float32Array(pcm.length);
-    for(let i=0;i<pcm.length;i++) float[i] = pcm[i]/32768;
-    const audioBuffer = playbackContext.createBuffer(1,float.length,24000);
-    audioBuffer.copyToChannel(float,0);
-    const source = playbackContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = audioPlaybackRate; // Apply custom speed
-    source.connect(playbackContext.destination);
-    source.onended = drainQueue;
-    source.start();
-  }
-}
-
-// ================= MODES =================
-function renderMockTextForMode(mode){
-  let words=[];
-  if(mode=="book") words=["This","is","book","mode","reading","example"];
-  if(mode=="form") words=["Please","fill","out","this","form","carefully"];
-  if(mode=="study") words=["Study","mode","helps","you","learn","faster"];
-  if(mode=="write") words=["Write","mode","assists","your","creativity"];
-  mockWords=words;
-  renderTextWithHighlight(words.join(" "), false);
-}
-
-// ================= FONT =================
-function increaseFont(){
-  const el = document.getElementById("reading-text");
-  let size = parseFloat(window.getComputedStyle(el).fontSize);
-  el.style.fontSize = size+2+"px";
-}
-
-function decreaseFont(){
-  const el = document.getElementById("reading-text");
-  let size = parseFloat(window.getComputedStyle(el).fontSize);
-  if(size>16) el.style.fontSize = size-2+"px";
-}
-
-// ================= UI =================
-function showInlineError(msg){
-  const el = document.getElementById("inline-error");
-  el.textContent = msg;
-  el.style.display="block";
-  setTimeout(()=>{ el.style.display="none"; },3000);
-}
-
-// ================= EVENTS =================
-function setupEvents(){
-  document.getElementById("mic-btn").addEventListener("click",toggleMic);
-  document.getElementById("snapshot-btn").addEventListener("click",takeSnapshot);
-  document.getElementById("upload-btn")
-    .addEventListener("click",()=>document.getElementById("file-input").click());
-  document.getElementById("file-input")
-    .addEventListener("change",handleUpload);
-
-  const urlSubmitBtn = document.getElementById("url-submit-btn");
-  if(urlSubmitBtn) urlSubmitBtn.addEventListener("click", fetchUrl);
-  
-  const urlInput = document.getElementById("url-input");
-  if(urlInput) {
-      urlInput.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") fetchUrl();
-      });
-  }
-
-  document.getElementById("mode-toggle")
-    .addEventListener("click",()=>{
-      const menu = document.getElementById("mode-dropdown");
-      menu.style.display = (menu.style.display=="flex"?"none":"flex");
-    });
-
-  document.getElementById("mode-dropdown")
-    .addEventListener("click",(e)=>{
-      const mode = e.target.dataset.mode;
-      if(!mode) return;
-      
-      CONFIG.MODE = mode;
-      document.getElementById("mode-toggle").textContent = "⚙ Mode: " + mode.charAt(0).toUpperCase() + mode.slice(1);
-      document.getElementById("mode-dropdown").style.display="none";
-      
-      // Tell backend if connected
-      sendMessage("mode", { mode });
-      
-      addChat(`Mode switched to: ${mode}`,"ai");
-      renderMockTextForMode(mode);
-    });
-
-  document.getElementById("consent-btn")
-    ?.addEventListener("click",()=>{
-      sessionStorage.setItem("privacy_consented","true");
-      document.getElementById("privacy-modal").classList.remove("show");
-      initSession();
-    });
-
-  document.getElementById("font-increase")
-    ?.addEventListener("click", increaseFont);
-  document.getElementById("font-decrease")
-    ?.addEventListener("click", decreaseFont);
-  document.getElementById("explain-btn")
-    ?.addEventListener("click", async (e) => {
-      // Ensure playback AudioContext exists and is resumed (requires user gesture)
-      if (!playbackContext) {
-        playbackContext = new AudioContext();
-      }
-      if (playbackContext.state === "suspended") {
-        await playbackContext.resume();
-      }
-
-      console.log("[UI] Explain requested. rawText length:", rawText?.length);
-      if(!rawText || rawText.trim().length === 0){
-        addChat("I don't have any text to explain yet. Please upload a file or take a snapshot first!", "ai");
-        return;
-      }
-      const btn = e.target;
-      if(btn.disabled) {
-        // Already running, allow manual re-enable on double-click
-        btn.disabled = false;
-        btn.style.opacity = "1";
-        addChat("Explain reset. Click again to retry.", "ai");
-        return;
-      }
-      if(ws && ws.readyState === WebSocket.OPEN){
-        btn.disabled = true;
-        btn.style.opacity = "0.5";
-        addChat("🔄 Explaining your text... please wait.", "ai");
+    if (ws?.readyState === WebSocket.OPEN) {
+        document.getElementById("explain-btn").disabled = true;
+        document.getElementById("explain-btn").style.opacity = "0.5";
+        document.getElementById("stop-explain-btn").style.display = "flex";
+        addChat("🔄 Explaining...", "ai");
         sendMessage("explain", { text: rawText });
-        updateStatus("online", "Explaining...");
-        // Safety timeout: re-enable button after 30s
-        setTimeout(() => {
-          if(btn.disabled) {
-            btn.disabled = false;
-            btn.style.opacity = "1";
-            console.log("[UI] Explain button safety timeout - re-enabled");
-          }
-        }, 30000);
-      } else {
-        console.warn("[WS] Cannot explain: socket not open. State:", ws?.readyState);
-        addChat("I'm not connected to the AI server yet. Please wait a moment!", "ai");
-      }
-    });
-  document.getElementById("test-voice-btn")
-    ?.addEventListener("click", () => {
-      addChat("Testing voice output...","user");
-    });
-  document.getElementById("stop-btn")
-    ?.addEventListener("click", () => {
-      stopMic();
-      isRecording = false;
-      document.getElementById("mic-btn").classList.remove("recording");
-      addChat("Stopped.","user");
-    });
-
-  // ================= SMART ANALYSIS (Feature A) =================
-  document.getElementById("view-original-btn")?.addEventListener("click", (e) => {
-    document.getElementById("reading-text").innerHTML = originalHTML;
-    currentView = "original";
-    e.target.classList.add("active-toggle");
-    document.getElementById("view-analyzed-btn").classList.remove("active-toggle");
-  });
-  
-  // Use Event Delegation for word highlighting because innerHTML assignments destroy direct click listeners
-  document.getElementById("reading-text")?.addEventListener("click", (e) => {
-    if (currentView !== "original") return;
-    const wordSpan = e.target.closest(".word");
-    if (wordSpan && wordSpan.dataset.wordIndex) {
-      highlightWord(parseInt(wordSpan.dataset.wordIndex, 10));
-    }
-  });
-
-  document.getElementById("view-analyzed-btn")?.addEventListener("click", (e) => {
-    if(!analyzedHTML) {
-      // The button text already says "Generating notes...", so we don't need to spam the chat log
-      return; 
-    }
-    document.getElementById("reading-text").innerHTML = analyzedHTML;
-    currentView = "notes";
-    e.target.classList.add("active-toggle");
-    document.getElementById("view-original-btn").classList.remove("active-toggle");
-  });
-
-  const readingText = document.getElementById("reading-text");
-  const selectionPopup = document.getElementById("selection-popup");
-  let currentSelection = "";
-
-  readingText?.addEventListener("mouseup", (e) => {
-    const selection = window.getSelection();
-    currentSelection = selection.toString().trim();
-    if (currentSelection.length > 0) {
-      selectionPopup.style.display = "block";
-      selectionPopup.style.left = e.clientX + "px";
-      selectionPopup.style.top = (e.clientY - 40) + "px";
-    }
-  });
-
-  document.addEventListener("mousedown", (e) => {
-    if (selectionPopup && !selectionPopup.contains(e.target)) {
-      selectionPopup.style.display = "none";
-    }
-  });
-
-  document.getElementById("explain-selection-btn")?.addEventListener("click", async () => {
-    selectionPopup.style.display = "none";
-    if (!currentSelection) return;
-    
-    // Ensure playback AudioContext exists and is resumed (requires user gesture)
-    if (!playbackContext) {
-      playbackContext = new AudioContext();
-    }
-    if (playbackContext.state === "suspended") {
-      await playbackContext.resume();
-    }
-    
-    addChat(`Explain: "${currentSelection}"`, "user");
-    
-    if(ws && ws.readyState === WebSocket.OPEN){
-      sendMessage("explain_selection", {
-        context: rawText,
-        selection: currentSelection
-      });
     } else {
-      addChat("I'm not connected yet. Click the mic button to connect!", "ai");
+        addChat("Reconnecting to Lexi...", "ai");
+        await initWebSocket();
     }
-  });
+}
+
+function handleUpload(files) {
+    if (!files.length) return;
+    const f = files[0];
+    if (f.size > MAX_SIZE) { addChat("File too large!", "ai"); return; }
+    
+    const formData = new FormData();
+    formData.append("file", f);
+    fetch(`${CONFIG.API_URL}/api/upload`, { method: "POST", body: formData })
+        .then(r => r.json())
+        .then(d => {
+            if (d.full_text) {
+                renderTextWithHighlight(d.full_text, true);
+                finalizeReadSource();
+                addChat("File processed.", "ai");
+            }
+        });
+}
+
+function forceSwitchMode(mode) {
+    currentMode = mode;
+    document.getElementById("mode-toggle").textContent = "⚙ Mode: " + mode.charAt(0).toUpperCase() + mode.slice(1);
+    document.getElementById("mode-dropdown").style.display = "none";
+    
+    document.getElementById("write-mode-panel").style.display = (mode === "write" ? "flex" : "none");
+    document.getElementById("form-mode-panel").style.display = (mode === "form" ? "flex" : "none");
+    
+    const isRead = (mode === "read");
+    const hasContent = isRead && isRealContentActive;
+    
+    document.getElementById("read-source-selector").style.display = (isRead && !isRealContentActive) ? "block" : "none";
+    document.getElementById("reading-text").style.display = hasContent ? "block" : "none";
+    document.getElementById("change-source-btn").style.display = hasContent ? "block" : "none";
+    document.getElementById("view-toggle-container").style.display = (hasContent && rawText.length > 50) ? "flex" : "none";
+
+    sendMessage("mode", { mode });
+}
+
+function speakText(text) {
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate = audioPlaybackRate;
+    window.speechSynthesis.speak(utt);
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), wait);
+    };
+}
+
+function highlightWord(idx) {
+    const spans = document.querySelectorAll("#reading-text .word");
+    spans.forEach(s => s.classList.remove("active-word"));
+    if (spans[idx]) {
+        spans[idx].classList.add("active-word");
+        spans[idx].scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+}
+
+function highlightSentence(idx) {
+    document.querySelectorAll(".sentence").forEach(s => s.classList.remove("active-sentence"));
+    const s = document.querySelector(`.sentence[data-sentence="${idx}"]`);
+    if (s) { s.classList.add("active-sentence"); s.scrollIntoView({ behavior: "smooth", block: "center" }); }
+}
+
+function clearSentenceHighlight() {
+    document.querySelectorAll(".sentence").forEach(s => s.classList.remove("active-sentence"));
+}
+
+function finalizeReadSource() {
+    isRealContentActive = true;
+    document.getElementById("read-source-selector").style.display = "none";
+    document.getElementById("reading-text").style.display = "block";
+    document.getElementById("change-source-btn").style.display = "block";
+    if (rawText.length > 50) document.getElementById("view-toggle-container").style.display = "flex";
+}
+
+function resetReadSource() {
+    rawText = "";
+    isRealContentActive = false;
+    document.getElementById("reading-text").innerHTML = "";
+    document.getElementById("reading-text").style.display = "none";
+    document.getElementById("read-source-selector").style.display = "block";
+    document.getElementById("change-source-btn").style.display = "none";
+    document.getElementById("view-toggle-container").style.display = "none";
+}
+
+function handleGlobalTooltip(e) {
+    const target = e.target.closest(".difficult-word");
+    const tip = document.querySelector(".tooltip") || (function(){
+        const d = document.createElement("div"); d.className = "tooltip"; document.body.appendChild(d); return d;
+    })();
+    
+    if (!target) { tip.style.visibility = "hidden"; return; }
+    const wordKey = target.getAttribute("data-word");
+    if (!window.difficultDictMap?.[wordKey]) return;
+    
+    tip.textContent = window.difficultDictMap[wordKey];
+    tip.style.visibility = "visible";
+    tip.style.opacity = "1";
+    const rect = target.getBoundingClientRect();
+    tip.style.top = (rect.bottom + 8) + 'px';
+    tip.style.left = (rect.left + rect.width / 2) + 'px';
+    tip.style.transform = 'translateX(-50%)';
+}
+
+function setupDragAndDrop() {
+    const zone = document.getElementById("reading-text");
+    if (!zone) return;
+    zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("dragover"); };
+    zone.ondragleave = () => zone.classList.remove("dragover");
+    zone.ondrop = (e) => {
+        e.preventDefault(); zone.classList.remove("dragover");
+        if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
+    };
+}
+
+function renderMockTextForMode(mode) {
+    if (mode === "write") return;
+    const txt = mode === "read" ? "Welcome to LexiLens. Upload a document or take a snapshot to begin reading together!" : "Please point your camera at a form or upload an image to get help filling it out.";
+    renderTextWithHighlight(txt, false);
+}
+
+function addChat(text, sender) {
+    const area = document.getElementById("chat-scroll");
+    if (!area) return;
+    const div = document.createElement("div");
+    div.className = `chat-message ${sender}`;
+    div.textContent = text;
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+    return div;
+}
+
+async function fetchUrl() {
+    const input = document.getElementById("url-input");
+    const url = input?.value;
+    if (!url) return;
+    addChat("Fetching URL...", "user");
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/fetch-url`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        if (data.full_text) {
+            renderTextWithHighlight(data.full_text, true);
+            finalizeReadSource();
+            input.value = "";
+        }
+    } catch { addChat("Failed to fetch URL.", "ai"); }
+}
+
+function increaseFont() {
+    const els = ["reading-text", "write-textarea", "write-highlight-overlay"];
+    els.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.fontSize = (parseFloat(getComputedStyle(el).fontSize) + 2) + "px";
+    });
+}
+
+function decreaseFont() {
+    const els = ["reading-text", "write-textarea", "write-highlight-overlay"];
+    els.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            const size = parseFloat(getComputedStyle(el).fontSize);
+            if (size > 14) el.style.fontSize = (size - 2) + "px";
+        }
+    });
 }

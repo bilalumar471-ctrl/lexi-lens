@@ -37,7 +37,10 @@ class Settings(BaseSettings):
         "http://localhost:8001",
         "http://127.0.0.1:8001"
     ]
-    GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
+    # Decoupled model names for different API endpoints
+    REST_GEMINI_MODEL: str = "gemini-2.5-flash"
+    LIVE_GEMINI_MODEL: str = "gemini-2.5-flash-native-audio-preview-12-2025"
+    
     LOG_LEVEL: str = "DEBUG"
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
@@ -127,6 +130,7 @@ def setup_logging() -> None:
         client.setup_logging(log_level=getattr(logging, settings.LOG_LEVEL.upper()))
         for h in logger.handlers:
             h.addFilter(pii_filter)
+        logger.addHandler(cloud_logging.handlers.CloudLoggingHandler(client))
 
     logger.info(
         "Logging initialised",

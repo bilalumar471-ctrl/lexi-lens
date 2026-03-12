@@ -83,6 +83,9 @@ ALLOWED_MESSAGE_TYPES: dict[str, set[str]] = {
     "explain_selection": {"session_token", "context", "selection"},
     "set_context": {"session_token", "text"},
     "snapshot": {"session_token"},
+    "stop_explanation": {"session_token"},
+    "write_command": {"session_token", "command", "current_text"},
+    "mode_context": {"session_token", "mode", "context"},
 }
 
 

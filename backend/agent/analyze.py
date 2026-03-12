@@ -11,8 +11,15 @@ import json
 import logging
 import re
 
+import functools
 from google import genai
 from google.genai import types
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception,
+)
 
 from config import get_settings
 
@@ -81,17 +88,40 @@ def _safe_parse_json(text: str, fallback_key: str) -> dict:
         return {}
 
 
-def analyze_text(text: str) -> dict:
+def _is_retryable_error(exception):
+    """Check if the error is a transient capacity or rate limit issue."""
+    err_str = str(exception).upper()
+    return "503" in err_str or "429" in err_str or "CAPACITY_EXHAUSTED" in err_str
+
+
+def _get_api_client():
+    """Helper to create a configured GenAI client with v1alpha."""
+    settings = get_settings()
+    return genai.Client(
+        api_key=settings.GEMINI_API_KEY,
+        http_options={'api_version': 'v1alpha'}
+    )
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception(_is_retryable_error),
+    before_sleep=lambda retry_state: logger.warning(
+        f"Retrying AI call (attempt {retry_state.attempt_number}) due to capacity/rate limit..."
+    ),
+)
+async def analyze_text(text: str) -> dict:
     """Analyze text to find difficult words and simple explanations."""
     settings = get_settings()
     if not settings.GEMINI_API_KEY:
         return {"difficult_words": []}
         
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = _get_api_client()
     
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
+        response = await client.aio.models.generate_content(
+            model=settings.REST_GEMINI_MODEL,
             contents=f"{ANALYZE_PROMPT}\n{text}",
         )
         if response.text:
@@ -105,19 +135,24 @@ def analyze_text(text: str) -> dict:
         return {"difficult_words": []}
 
 
-def explain_selection(context: str, selection: str) -> str:
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception(_is_retryable_error),
+)
+async def explain_selection(context: str, selection: str) -> str:
     """Provide a simple explanation for selected text."""
     settings = get_settings()
     if not settings.GEMINI_API_KEY:
         return "I'm sorry, my connection is not set up."
         
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = _get_api_client()
     
     prompt = EXPLAIN_SELECTION_PROMPT.format(context=context, selection=selection)
     
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
+        response = await client.aio.models.generate_content(
+            model=settings.REST_GEMINI_MODEL,
             contents=prompt,
         )
         return response.text or "I'm not sure how to explain that."
@@ -126,20 +161,22 @@ def explain_selection(context: str, selection: str) -> str:
         return "Sorry, I had trouble thinking of an explanation just now."
 
 
-import functools
-
-@functools.lru_cache(maxsize=10)
-def analyze_notes(text: str) -> dict:
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception(_is_retryable_error),
+)
+async def analyze_notes(text: str) -> dict:
     """Generate simple bullet-point notes for the provided text."""
     settings = get_settings()
     if not settings.GEMINI_API_KEY:
         return {"notes": ["My connection is not set up."]}
         
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = _get_api_client()
     
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
+        response = await client.aio.models.generate_content(
+            model=settings.REST_GEMINI_MODEL,
             contents=f"{SUMMARIZE_PROMPT}\n{text}",
         )
         if response.text:
@@ -152,3 +189,74 @@ def analyze_notes(text: str) -> dict:
         logger.error(f"Error generating notes: {e}")
         return {"notes": ["Sorry, I had trouble creating notes for this text."]}
 
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=6),
+    retry=retry_if_exception(_is_retryable_error),
+)
+async def provide_gentle_suggestions(text: str) -> dict:
+    """Provide gentle spelling and grammar suggestions without overwriting."""
+    settings = get_settings()
+    if not settings.GEMINI_API_KEY:
+        return {"suggestions": []}
+    
+    client = _get_api_client()
+    
+    prompt = f"""
+    You are a gentle writing assistant for someone with dyslexia. 
+    Analyze the following sentence: "{text}"
+    
+    If there are spelling or grammar issues, provide a maximum of 2 gentle suggestions. 
+    Focus on encouraging the user. 
+    
+    You MUST return ONLY a valid JSON object in this format:
+    {{"suggestions": ["suggestion 1", "suggestion 2"]}}
+    
+    If it's perfect, return an empty list.
+    """
+    
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.REST_GEMINI_MODEL,
+            contents=prompt,
+        )
+        if response.text:
+            return _safe_parse_json(response.text, "suggestions")
+        return {"suggestions": []}
+    except Exception as e:
+        logger.error(f"Error providing suggestions: {e}")
+        return {"suggestions": []}
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    retry=retry_if_exception(_is_retryable_error),
+)
+async def predict_next_words(text: str) -> dict:
+    """Predict the next likely words to help a user type faster."""
+    settings = get_settings()
+    if not settings.GEMINI_API_KEY:
+        return {"predictions": []}
+    
+    client = _get_api_client()
+    
+    prompt = f"""
+    Based on this text: "{text}", what are the 3 most likely words or short phrases the user might type next?
+    
+    You MUST return ONLY a valid JSON object in this format:
+    {{"predictions": ["word1", "word2", "word3"]}}
+    """
+    
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.REST_GEMINI_MODEL,
+            contents=prompt,
+        )
+        if response.text:
+            return _safe_parse_json(response.text, "predictions")
+        return {"predictions": []}
+    except Exception as e:
+        logger.error(f"Error predicting words: {e}")
+        return {"predictions": []}
