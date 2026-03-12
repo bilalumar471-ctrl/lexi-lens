@@ -87,21 +87,23 @@ def analyze_text(text: str) -> dict:
     if not settings.GEMINI_API_KEY:
         return {"difficult_words": []}
         
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
     
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model=settings.GEMINI_STANDARD_MODEL,
             contents=f"{ANALYZE_PROMPT}\n{text}",
         )
         if response.text:
-            logger.info(f"Analyze response: {response.text[:300]}")
+            logger.info(f"Analyze response received (length: {len(response.text)})")
             result = _safe_parse_json(response.text, "difficult_words")
             if "difficult_words" in result:
                 return result
+        else:
+            logger.warning("Analyze response text is empty")
         return {"difficult_words": []}
     except Exception as e:
-        logger.error(f"Error analyzing text: {e}")
+        logger.error(f"Error analyzing text: {e}", exc_info=True)
         return {"difficult_words": []}
 
 
@@ -111,18 +113,18 @@ def explain_selection(context: str, selection: str) -> str:
     if not settings.GEMINI_API_KEY:
         return "I'm sorry, my connection is not set up."
         
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
     
     prompt = EXPLAIN_SELECTION_PROMPT.format(context=context, selection=selection)
     
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model=settings.GEMINI_STANDARD_MODEL,
             contents=prompt,
         )
         return response.text or "I'm not sure how to explain that."
     except Exception as e:
-        logger.error(f"Error explaining selection: {e}")
+        logger.error(f"Error explaining selection: {e}", exc_info=True)
         return "Sorry, I had trouble thinking of an explanation just now."
 
 
@@ -135,11 +137,11 @@ def analyze_notes(text: str) -> dict:
     if not settings.GEMINI_API_KEY:
         return {"notes": ["My connection is not set up."]}
         
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
     
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model=settings.GEMINI_STANDARD_MODEL,
             contents=f"{SUMMARIZE_PROMPT}\n{text}",
         )
         if response.text:
@@ -149,7 +151,7 @@ def analyze_notes(text: str) -> dict:
                 return result
         return {"notes": ["Could not generate notes at this time."]}
     except Exception as e:
-        logger.error(f"Error generating notes: {e}")
+        logger.error(f"Error generating notes: {e}", exc_info=True)
         return {"notes": ["Sorry, I had trouble creating notes for this text."]}
 
 
@@ -171,11 +173,11 @@ def extract_key_points(text: str) -> dict:
     if not settings.GEMINI_API_KEY:
         return {"key_points": []}
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
 
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model=settings.GEMINI_STANDARD_MODEL,
             contents=f"{KEY_POINTS_PROMPT}\n{text}",
         )
         if response.text:

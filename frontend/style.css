@@ -541,7 +541,7 @@ body {
   background: white;
   padding: 30px;
   border-radius: 16px;
-  width: 320px;
+  width: 380px;
   text-align: center;
   transform: scale(0.9);
   transition: transform 0.3s ease;
@@ -801,4 +801,118 @@ body {
 .color-dot.active {
   border-color: #A98CFF;
   box-shadow: 0 0 0 2px rgba(169, 140, 255, 0.3);
+}
+
+/* ================= PHASE 3 ADDITIONS ================= */
+
+/* Mode Badge */
+.mode-badge {
+  position: fixed;
+  top: 15px;
+  right: 150px; /* Offset from status indicator */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  background: #A98CFF;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.mode-badge.mode-book { background: #8b5cf6; } 
+.mode-badge.mode-form { background: #3b82f6; } 
+.mode-badge.mode-study { background: #10b981; } 
+.mode-badge.mode-write { background: #f59e0b; } 
+
+/* Modal Actions */
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.modal-actions .btn-outline {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Speed Indicator */
+.speed-indicator {
+  font-size: 12px;
+  font-weight: bold;
+  color: #6d28d9;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+/* Dictation UI */
+.dictation-area {
+  margin-top: 20px;
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--shadow-2);
+  border: 1px solid var(--border);
+}
+
+.dictation-text {
+  font-family: Arial, sans-serif;
+  font-size: 22px;
+  line-height: 2.0;
+  color: #1a1a1a;
+  min-height: 120px;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+}
+
+.dictation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .main-layout {
+    flex-direction: column;
+    height: auto;
+    overflow-y: auto;
+    padding: 12px;
+  }
+  
+  .left-panel, .right-panel {
+    width: 100%;
+    max-width: 100%;
+    resize: none;
+    height: auto;
+    padding: 0;
+  }
+  
+  .left-panel { margin-bottom: 16px; }
+
+  #status-indicator, .mode-badge {
+    position: static;
+    display: inline-flex;
+    margin: 5px;
+  }
+  
+  #app {
+     padding-top: 60px; /* Space for sticky/static badges */
+  }
+
+  .camera-controls {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+  
+  .url-control-group {
+    width: 100%;
+    margin: 8px 0 !important;
+  }
 }

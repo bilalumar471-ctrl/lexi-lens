@@ -55,10 +55,30 @@ def validate_upload(
     if len(data) > MAX_UPLOAD_SIZE:
         return False, f"File too large ({len(data)} bytes). Maximum is 10 MB."
 
-    # 2. MIME check via python-magic (actual file bytes, not trust headers)
-    detected_mime = magic.from_buffer(data[:2048], mime=True)
-    if detected_mime not in ALLOWED_MIME_TYPES:
-        return False, f"Unsupported file type: {detected_mime}"
+    # 2. MIME check via python-magic
+    detected_mime = "unknown"
+    try:
+        detected_mime = magic.from_buffer(data[:4096], mime=True)
+    except Exception as e:
+        logger.warning(f"Magic detection failed for '{filename}': {e}")
+
+    logger.debug(f"Validating '{filename}': DetectMime={detected_mime}, ProvidedHeaders={content_type}")
+
+    # Fallback: trust extension/header if magic fails or returns generic 'octet-stream'
+    is_valid = detected_mime in ALLOWED_MIME_TYPES
+    if not is_valid:
+        # Check if extension matches and it's a generic octet-stream
+        ext = filename.lower().split('.')[-1]
+        if detected_mime in {"application/octet-stream", "text/plain", "unknown"}:
+            if ext == 'pdf':
+                detected_mime = "application/pdf"
+                is_valid = True
+            elif ext in {'jpg', 'jpeg', 'png', 'webp'}:
+                detected_mime = f"image/{'jpeg' if ext in ['jpg', 'jpeg'] else ext}"
+                is_valid = True
+
+    if not is_valid:
+        return False, f"Unsupported or misidentified file type: {detected_mime}"
 
     # 3. Sanitise filename
     safe_name = _FILENAME_RE.sub("_", filename)

@@ -127,7 +127,7 @@ class LexiAgent:
             self._session_dead.clear()
 
             self._session_cm = self._client.aio.live.connect(
-                model="gemini-2.5-flash-native-audio-latest",
+                model=self._settings.GEMINI_LIVE_MODEL,
                 config=config,
             )
             if self._session_cm:
@@ -227,11 +227,11 @@ class LexiAgent:
         
         for attempt in range(2):
             try:
-                # Use a fresh client without v1alpha for standard API calls
-                client = genai.Client(api_key=settings.GEMINI_API_KEY)
+                # Use v1alpha for standard API calls too
+                client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options={"api_version": "v1alpha"})
                 response = await asyncio.wait_for(
                     client.aio.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model=settings.GEMINI_STANDARD_MODEL,
                         contents=prompt,
                     ),
                     timeout=10.0

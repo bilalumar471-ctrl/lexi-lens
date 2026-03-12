@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     PROJECT_ID: str = os.getenv("PROJECT_ID", "lexi-lens")
     ENV: str = os.getenv("ENV", "development")
     FRONTEND_URL: str = _resolve_frontend_url()
-    GEMINI_MODEL: str = "gemini-2.0-flash-live-001"
+    GEMINI_STANDARD_MODEL: str = "gemini-2.5-flash"
+    GEMINI_LIVE_MODEL: str = "gemini-2.5-flash-native-audio-preview-12-2025"
     LOG_LEVEL: str = "DEBUG"
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 

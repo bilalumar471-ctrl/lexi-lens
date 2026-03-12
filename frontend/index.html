@@ -33,11 +33,15 @@ style-src 'self' 'unsafe-inline';
         LexiLens processes your voice and camera feed in real time to help you read.
         Your session data is automatically deleted within 24 hours and never shared with third parties.
       </p>
-      <button id="consent-btn" class="btn">I Agree</button>
+      <div class="modal-actions">
+        <a href="https://example.com/privacy" target="_blank" class="btn-outline">Learn More</a>
+        <button id="consent-btn" class="btn-primary">I Understand</button>
+      </div>
     </div>
   </div>
   <div id="app" class="theme-nano">
     <div id="status-indicator" class="status-offline">Connecting...</div>
+    <div id="mode-badge" class="mode-badge">General Mode</div>
     <div class="main-layout">
       <!-- Left Panel (Resizable) -->
       <div class="left-panel">
@@ -66,6 +70,7 @@ style-src 'self' 'unsafe-inline';
               <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
               <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
               <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
+              <button id="screen-reader-btn" class="btn" aria-label="Read Screen">🖥 Read Screen</button>
               <input type="file" id="file-input" style="display: none;">
             </div>
             
@@ -109,6 +114,16 @@ style-src 'self' 'unsafe-inline';
             <div id="reading-text" style="position: relative;">
               <p>The recognized text will appear here.</p>
             </div>
+
+            <!-- Dictation Mode UI -->
+            <div id="dictation-area" class="dictation-area hidden">
+              <div id="dictation-text-display" class="dictation-text">Waiting for dictation...</div>
+              <div class="dictation-actions">
+                <button id="dictation-clear-btn" class="btn-outline">🗑 Clear</button>
+                <button id="dictation-copy-btn" class="btn-primary">📋 That's good</button>
+                <button id="dictation-stop-btn" class="btn-outline">⏹ Stop</button>
+              </div>
+            </div>
             
             <!-- Selection Popup Button -->
             <div id="selection-popup" class="selection-popup">
@@ -130,12 +145,12 @@ style-src 'self' 'unsafe-inline';
               <button id="font-decrease" class="btn-outline">A-</button>
               
               <div class="speed-control-wrapper" title="Voice Playback Speed">
+                <div id="speed-indicator" class="speed-indicator">▶ Normal</div>
                 <select id="voice-speed-select" class="btn-outline" style="padding: 9px 24px 9px 12px; appearance: none; cursor: pointer;">
-                  <option value="1.0">🐌 Speed: 1.0x</option>
-                  <option value="0.9">🐌 Speed: 0.9x</option>
-                  <option value="0.8">🐌 Speed: 0.8x</option>
-                  <option value="0.7">🐌 Speed: 0.7x</option>
-                  <option value="0.6">🐌 Speed: 0.6x</option>
+                  <option value="0.7">🐢 Slow (0.7x)</option>
+                  <option value="1.0" selected>▶ Normal (1.0x)</option>
+                  <option value="1.2">🐇 Fast (1.2x)</option>
+                  <option value="1.5">🚀 Extra Fast (1.5x)</option>
                 </select>
               </div>
 
