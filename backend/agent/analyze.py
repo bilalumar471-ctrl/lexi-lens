@@ -11,6 +11,7 @@ import json
 import logging
 import re
 
+import asyncio
 import functools
 from google import genai
 from google.genai import types
@@ -120,9 +121,12 @@ async def analyze_text(text: str) -> dict:
     client = _get_api_client()
     
     try:
-        response = await client.aio.models.generate_content(
-            model=settings.REST_GEMINI_MODEL,
-            contents=f"{ANALYZE_PROMPT}\n{text}",
+        response = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=settings.REST_GEMINI_MODEL,
+                contents=f"{ANALYZE_PROMPT}\n{text}",
+            ),
+            timeout=15.0
         )
         if response.text:
             logger.info(f"Analyze response: {response.text[:300]}")
@@ -151,9 +155,12 @@ async def explain_selection(context: str, selection: str) -> str:
     prompt = EXPLAIN_SELECTION_PROMPT.format(context=context, selection=selection)
     
     try:
-        response = await client.aio.models.generate_content(
-            model=settings.REST_GEMINI_MODEL,
-            contents=prompt,
+        response = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=settings.REST_GEMINI_MODEL,
+                contents=prompt,
+            ),
+            timeout=15.0
         )
         return response.text or "I'm not sure how to explain that."
     except Exception as e:
@@ -175,9 +182,12 @@ async def analyze_notes(text: str) -> dict:
     client = _get_api_client()
     
     try:
-        response = await client.aio.models.generate_content(
-            model=settings.REST_GEMINI_MODEL,
-            contents=f"{SUMMARIZE_PROMPT}\n{text}",
+        response = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=settings.REST_GEMINI_MODEL,
+                contents=f"{SUMMARIZE_PROMPT}\n{text}",
+            ),
+            timeout=15.0
         )
         if response.text:
             logger.info(f"Notes response: {response.text[:300]}")
@@ -207,19 +217,24 @@ async def provide_gentle_suggestions(text: str) -> dict:
     You are a gentle writing assistant for someone with dyslexia. 
     Analyze the following sentence: "{text}"
     
-    If there are spelling or grammar issues, provide a maximum of 2 gentle suggestions. 
+    If there are spelling or grammar issues, identify the specific word or phrase and provide a gentle replacement.
     Focus on encouraging the user. 
     
-    You MUST return ONLY a valid JSON object in this format:
-    {{"suggestions": ["suggestion 1", "suggestion 2"]}}
+    You MUST return ONLY a valid JSON object in this exact format:
+    {{"suggestions": [
+        {{"original": "mistake", "replacement": "correction"}}
+    ]}}
     
-    If it's perfect, return an empty list.
+    If it's perfect, return {{"suggestions": []}}.
     """
     
     try:
-        response = await client.aio.models.generate_content(
-            model=settings.REST_GEMINI_MODEL,
-            contents=prompt,
+        response = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=settings.REST_GEMINI_MODEL,
+                contents=prompt,
+            ),
+            timeout=15.0
         )
         if response.text:
             return _safe_parse_json(response.text, "suggestions")
@@ -250,9 +265,12 @@ async def predict_next_words(text: str) -> dict:
     """
     
     try:
-        response = await client.aio.models.generate_content(
-            model=settings.REST_GEMINI_MODEL,
-            contents=prompt,
+        response = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=settings.REST_GEMINI_MODEL,
+                contents=prompt,
+            ),
+            timeout=15.0
         )
         if response.text:
             return _safe_parse_json(response.text, "predictions")

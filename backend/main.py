@@ -210,7 +210,7 @@ async def ws_session(websocket: WebSocket):
         """Send periodic pings to keep the connection alive."""
         try:
             while True:
-                await asyncio.sleep(30)
+                await asyncio.sleep(15)
                 await websocket.send_json({"type": "ping"})
         except asyncio.CancelledError:
             pass
@@ -307,6 +307,11 @@ async def ws_session(websocket: WebSocket):
                                 # Ingest form analysis into the Live session memory/context
                                 instruction = f"USER CONTEXT (Shared Form):\n{ctx}\n\nUser is looking at this form. Be ready to answer questions about it."
                                 await agent.send_text(instruction)
+                        
+                        elif msg_type == "vision_frame":
+                            frame_data = msg.get("data", "")
+                            if frame_data:
+                                await agent.send_vision_frame(frame_data)
 
             except WebSocketDisconnect:
                 logger.info("Client disconnected (send path)")
@@ -320,10 +325,23 @@ async def ws_session(websocket: WebSocket):
             except WebSocketDisconnect:
                 logger.info("Client disconnected (receive path)")
 
-        await asyncio.gather(
-            _forward_client_audio(),
-            _forward_model_audio(),
+        done, pending = await asyncio.wait(
+            [
+                asyncio.create_task(_forward_client_audio()),
+                asyncio.create_task(_forward_model_audio()),
+            ],
+            return_when=asyncio.FIRST_COMPLETED,
         )
+        # If one fails, cancel the other to trigger cleanup
+        for task in pending:
+            task.cancel()
+        
+        # Check if there were exceptions in the finished tasks
+        for task in done:
+            try:
+                task.result()
+            except Exception as e:
+                logger.error(f"Async bridge task failed: {e}")
 
     except WebSocketDisconnect:
         logger.info("WebSocket session disconnected")

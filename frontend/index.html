@@ -96,17 +96,16 @@ style-src 'self' 'unsafe-inline';
                 <button id="view-analyzed-btn" class="btn-outline" style="padding: 4px 8px; font-size: 12px;">📝 Summary Notes</button>
               </div>
             </div>
-            <div id="read-source-selector" class="form-source-selector">
+            <div id="read-source-selector" class="read-source-selector">
               <h3>Choose what to read</h3>
               <p>Capture a snapshot, upload a file, or paste a link to start.</p>
-              <div class="source-buttons" style="flex-wrap: wrap;">
+              <div class="source-buttons">
                 <button id="read-snapshot-btn" class="btn-primary">📸 Camera Snapshot</button>
                 <button id="read-upload-btn" class="btn-outline">📄 Upload Document</button>
               </div>
-              <div class="url-control-group" style="margin-top: 20px; display: flex; gap: 8px;">
-                <input type="url" id="url-input" placeholder="Paste article link here..." 
-                       style="flex: 1; padding: 10px 15px; border-radius: 25px; border: 2px solid var(--border); font-family: inherit;">
-                <button id="url-submit-btn" class="btn-primary" style="border-radius: 25px;">Go</button>
+              <div class="url-control-group">
+                <input type="url" id="url-input" placeholder="Paste article link here...">
+                <button id="url-submit-btn" class="btn-primary">Go</button>
               </div>
               <input type="file" id="file-input" style="display: none;">
             </div>
@@ -128,6 +127,7 @@ style-src 'self' 'unsafe-inline';
                 <textarea id="write-textarea" placeholder="Start typing or use the mic..."></textarea>
                 <div id="write-highlight-overlay" class="highlight-overlay"></div>
                 <div id="word-predictions" class="word-predictions"></div>
+                <button id="write-fix-all-btn" class="fix-all-btn" style="display: none;">✨ Fix All</button>
               </div>
               <div id="prediction-bar" class="prediction-bar"></div>
 
@@ -159,7 +159,10 @@ style-src 'self' 'unsafe-inline';
               <div id="form-active-view" class="form-active-view" style="display: none;">
                 <div class="form-view-header">
                    <span id="form-view-status">Live Guidance Active</span>
-                   <button id="form-switch-source" class="btn-text">🔄 Switch Source</button>
+                   <div class="header-actions" style="display: flex; gap: 8px;">
+                      <button id="form-popout-btn" class="btn-text" title="Pop out Lexi Sidekick">🚀 Sidekick</button>
+                      <button id="form-switch-source" class="btn-text">🔄 Switch Source</button>
+                   </div>
                 </div>
                 <div id="form-visual-container" class="form-visual-container">
                    <!-- Captured image or screen video will go here -->
@@ -223,6 +226,21 @@ style-src 'self' 'unsafe-inline';
   </div>
 
   <div id="reading-ruler"></div>
+
+  <!-- Template for the Floating Sidekick Window -->
+  <template id="sidekick-template">
+    <div class="sidekick-container">
+      <div class="sidekick-avatar">
+        <div class="avatar-ring"></div>
+      </div>
+      <div class="sidekick-status">Lexi Sidekick</div>
+      <div class="sidekick-transcript">"I am here to help!"</div>
+      <div class="sidekick-controls">
+        <button id="sidekick-mic" class="sidekick-btn" title="Toggle Mic">🎙</button>
+      </div>
+    </div>
+  </template>
+
   <script src="script.js"></script>
 </body>
 

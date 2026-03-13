@@ -10,7 +10,8 @@ async def list_models():
     try:
         models = client.models.list()
         for m in models:
-            print(f"- {m.name} ({m.display_name})")
+            # Print without much truncation
+            print(f"{m.name}")
     except Exception as e:
         print(f"Error: {e}")
 

@@ -47,7 +47,8 @@ Rules:
 - NEVER say "I have...", "I am...", "I think...", or describe your process.
 - ONLY speak the actual answer or explanation.
 - **Content Pushing**: If the user asks you to write a story, draft, or structured text, provide it in your spoken response but also prefix the text with "[PUSH_TO_DASHBOARD]" in your text-only output if available.
-- **Write Mode Support**: If the user is in Write Mode and asks you to write something or fix their writing, prefix the generated text with "[PUSH_TO_WRITE_AREA]" so LexiLens can insert it into the editor for them.
+- **Write Mode Support**: If the user is in Write Mode and asks you to write something or fix their writing, you MUST start your response with the tag [PUSH_TO_WRITE_AREA] followed by the generated text. Do NOT speak this tag.
+- **Form Mode Support**: The user may share their screen while looking at a form. You can SEE the screen. Use this visual information to guide them on how to fill out the form, explain questions, or suggest what to type.
 - If the user asks you to read something, read it aloud naturally.
 """
 
@@ -148,8 +149,8 @@ class LexiAgent:
                 config=config,
             )
             if self._session_cm:
-                # Use a timeout for the session establishment
-                self._session = await asyncio.wait_for(self._session_cm.__aenter__(), timeout=15.0)
+                # Use a larger timeout for the session establishment (30s)
+                self._session = await asyncio.wait_for(self._session_cm.__aenter__(), timeout=30.0)
                 logger.info("Connected to Gemini Live API")
             else:
                 raise RuntimeError("Failed to create session context manager")
@@ -191,12 +192,31 @@ class LexiAgent:
             input=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
         )
 
+    async def send_vision_frame(self, base64_data: str) -> None:
+        """Send a base64 encoded image frame to the Live session."""
+        if not self._session or self._session_dead.is_set():
+            return
+        try:
+            # base64_data might include "data:image/jpeg;base64," prefix
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            
+            await self._session.send(
+                input=types.Blob(data=base64_data, mime_type="image/jpeg"),
+                end_of_turn=False # It's a continuous stream
+            )
+            # logger.debug("Vision frame sent to Lexi")
+        except Exception as e:
+            logger.warning(f"Failed to send vision frame: {e}")
+
     async def receive_audio(self, websocket: Any = None) -> AsyncGenerator[bytes, None]:
         """Stream audio from Gemini and forward transcripts to the client."""
         if not self._session:
             raise RuntimeError("LexiAgent is not connected. Call connect() first.")
 
         while True:
+            if self._session_dead.is_set():
+                break
             try:
                 async for response in self._session.receive():
                     if response.server_content and response.server_content.model_turn:
@@ -234,17 +254,33 @@ class LexiAgent:
                             continue
 
             except Exception as e:
-                logger.error(f"Error in Lexi receive loop: {e}")
-                self._session_dead.set() # Signal that the session is gone
-                self._turn_done.set() # Wake up any waiting explain() task
-                if "503" in str(e) or "CAPACITY_EXHAUSTED" in str(e).upper():
-                    if websocket:
-                        try:
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "Lexi is a bit overwhelmed right now (AI capacity reached). Please try again in a moment!"
-                            })
-                        except: pass
+                err_msg = str(e)
+                logger.error(f"Error in Lexi receive loop: {err_msg}")
+                self._session_dead.set()
+                self._turn_done.set()
+                
+                if websocket:
+                    friendly_msg = "Lexi disconnected unexpectedly."
+                    if "503" in err_msg or "CAPACITY" in err_msg.upper():
+                        friendly_msg = "Lexi is overwhelmed (API Capacity). Please wait a moment."
+                    elif "429" in err_msg:
+                        friendly_msg = "Slow down! Lexi needs a quick break (Rate Limit)."
+                    elif "DEADLINE" in err_msg.upper():
+                        friendly_msg = "Lexi is taking a bit longer to respond. Reconnecting..."
+                        
+                    try:
+                        await websocket.send_json({
+                            "type": "error", 
+                            "message": friendly_msg
+                        })
+                    except: pass
+                
+                # Resiliency: If it's a transient deadline/internal error, don't kill the loop immediately
+                if "DEADLINE" in err_msg.upper() or "INTERNAL" in err_msg.upper() or "TIMEOUT" in err_msg.upper():
+                    logger.warning(f"Transient error in Lexi receive loop ({err_msg}), attempting to continue listening...")
+                    await asyncio.sleep(1)
+                    continue 
+
                 break
 
     # ------------------------------------------------------------------
@@ -262,14 +298,14 @@ class LexiAgent:
         
         for attempt in range(2):
             try:
-                # Use a fresh client without v1alpha for standard API calls
+                # Use fresh client and standard API with timeout
                 client = genai.Client(api_key=settings.GEMINI_API_KEY)
                 response = await asyncio.wait_for(
                     client.aio.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model=settings.REST_GEMINI_MODEL,
                         contents=prompt,
                     ),
-                    timeout=10.0
+                    timeout=15.0
                 )
                 if response.text:
                     cleaned = response.text.strip()
@@ -433,10 +469,11 @@ class LexiAgent:
             f"SYSTEM INSTRUCTION: You are in WRITE MODE. \n"
             f"USER TEXT AREA CONTENT: \"{current_text}\"\n"
             f"USER COMMAND: \"{command}\"\n\n"
-            f"TASK: If the user wants a story, write it. If they want to fix text, fix it. \n"
-            f"CRITICAL: You MUST prefix the generated text ONLY with the tag [PUSH_TO_WRITE_AREA]. \n"
-            f"Example response: '[PUSH_TO_WRITE_AREA] Once upon a time there was a goat...'\n"
-            f"Speak a very short welcoming sentence like 'Coming right up!' while you push the text."
+            f"TASK: Generate the requested content. \n"
+            f"CRITICAL: You MUST provide the generated content in your text-only output STARTING EXACTLY WITH the tag [PUSH_TO_WRITE_AREA]. Do NOT speak the tag aloud.\n"
+            f"Example response structure:\n"
+            f"[PUSH_TO_WRITE_AREA] Once upon a time...\n"
+            f"While pushing the text, speak a very short, separate friendly confirmation like 'I've written that for you!' or 'Here is a draft.'"
         )
         
         try:

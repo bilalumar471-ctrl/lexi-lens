@@ -18,12 +18,17 @@ let SESSION_TOKEN = null;
 let isRecording = false;
 let currentMode = "read";
 let isRealContentActive = false; // Track if real text (not mock) is loaded
+let isAIPushingToWrite = false; // TRACK IF AI IS GENERATING FOR THE EDITOR
 
 // Audio
 let audioCtx = null;
 let micStream = null;
 let scriptProcessor = null;
 let playbackContext = null;
+let window_shouldReconnect = true;
+let reconnectAttempts = 0;
+let reconnectTimeout = null;
+const MAX_RECONNECT_ATTEMPTS = 10;
 let audioQueue = [];
 let isPlaying = false;
 let activeAudioSource = null;
@@ -34,15 +39,17 @@ let speechRecognizer = null;
 let currentSpeechBubble = null;
 let lastAiSpeechTime = 0;
 let isLexiTalking = false;
+let sidekickWindow = null;
+let visionInterval = null;
+let visionCanvas = document.createElement("canvas");
 
 // Content
 let rawText = "";
 let originalHTML = "";
 let analyzedHTML = "";
-let mockWords = [];
-let window_shouldReconnect = true;
-let reconnectAttempts = 0;
-let reconnectTimeout = null;
+let writeRedoStack = [];
+let transcriptBuffer = ""; // NEW: Buffer for cross-chunk tag detection
+let isDrawingSuggestions = false; // NEW: Block syncOverlay during analysis
 
 // ================= 3. INITIALIZATION =================
 window.addEventListener("DOMContentLoaded", () => {
@@ -52,6 +59,7 @@ window.addEventListener("DOMContentLoaded", () => {
     initWriteMode();
     initFormMode();
     initVisionFormMode();
+    initSelectionHandler();
 
     if (!sessionStorage.getItem("privacy_consented")) {
         document.getElementById("privacy-modal")?.classList.add("show");
@@ -98,6 +106,16 @@ async function initWebSocket() {
         reconnectAttempts = 0;
         updateStatus("online", "Lexi Online");
         sendMessage("init");
+        
+        // SYNC STATE: Re-send current mode and content context after drop
+        if (currentMode) {
+            console.log("[WS] Restoring mode:", currentMode);
+            sendMessage("mode", { mode: currentMode });
+        }
+        if (isRealContentActive && rawText) {
+            console.log("[WS] Restoring context (length):", rawText.length);
+            sendMessage("set_context", { text: rawText });
+        }
     };
 
     ws.onmessage = async (event) => {
@@ -108,23 +126,25 @@ async function initWebSocket() {
         }
     };
 
-    ws.onclose = () => {
-        console.log("[WS] Closed");
+    ws.onclose = (event) => {
+        console.warn(`[WS] Disconnected (code=${event.code})`);
+        updateStatus("offline", "Lexi Offline");
         isLexiTalking = false;
-        isPlaying = false;
-        audioQueue = [];
         
-        if (reconnectTimeout) clearTimeout(reconnectTimeout);
-        if (!window_shouldReconnect) return;
-
-        const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
-        reconnectAttempts++;
-        updateStatus("reconnecting", `Reconnecting in ${delay/1000}s...`);
-        reconnectTimeout = setTimeout(initSession, delay);
+        if (window_shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+            console.log(`[WS] Retrying in ${delay}ms... (Attempt ${reconnectAttempts + 1})`);
+            reconnectTimeout = setTimeout(initWebSocket, delay);
+            reconnectAttempts++;
+            updateStatus("offline", "Reconnecting...");
+        } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            updateStatus("error", "Connection Lost - Please Refresh");
+        }
     };
 
     ws.onerror = (err) => {
         console.error("[WS] Error:", err);
+        updateStatus("error", "Connection Error");
     };
 }
 
@@ -145,6 +165,14 @@ function handleJsonMessage(msg) {
             break;
         case "talking":
             handleLexiTalkingState(msg.value);
+            if (!msg.value) {
+                // Increased delay to 3s to ensure all transcript chunks are caught
+                console.log("[AI-WRITE] Lexi stopped talking. Starting 3s cooldown for push state.");
+                setTimeout(() => {
+                    isAIPushingToWrite = false;
+                    console.log("[AI-WRITE] State reset to inactive");
+                }, 3000);
+            }
             break;
         case "highlight":
             highlightWord(msg.word_index);
@@ -175,25 +203,63 @@ function handleJsonMessage(msg) {
 }
 
 function handleTranscript(msg) {
-    const txt = (msg.text || "").trim();
+    const txt = (msg.text || "");
     if (!txt) return;
 
-    if (txt.includes("[PUSH_TO_DASHBOARD]")) {
-        const storyText = txt.replace("[PUSH_TO_DASHBOARD]", "").trim();
-        addChat("✨ Lexi pushed a new story to your dashboard!", "ai");
-        renderTextWithHighlight(storyText, true);
-        if (currentMode === "write") forceSwitchMode("read");
-    } else if (txt.includes("[PUSH_TO_WRITE_AREA]")) {
-        const cleanText = txt.replace("[PUSH_TO_WRITE_AREA]", "").trim();
+    // RESTORE BUFFERING: Accumulated buffer handles tags split across chunks
+    transcriptBuffer += txt;
+    
+    // Check for PUSH_TO_DASHBOARD
+    if (transcriptBuffer.includes("[PUSH_TO_DASHBOARD]")) {
+        const parts = transcriptBuffer.split("[PUSH_TO_DASHBOARD]");
+        const intro = parts[0].trim();
+        const content = parts[1].trim();
+        if (intro) addChat(intro, "ai");
+        if (content) {
+            addChat("✨ Lexi pushed a new story to your dashboard!", "ai");
+            renderTextWithHighlight(content, true);
+            if (currentMode === "write") forceSwitchMode("read");
+        }
+        transcriptBuffer = ""; // Clear after consumption
+        return;
+    }
+
+    // Check for PUSH_TO_WRITE_AREA
+    if (transcriptBuffer.includes("[PUSH_TO_WRITE_AREA]")) {
+        const parts = transcriptBuffer.split("[PUSH_TO_WRITE_AREA]");
+        const intro = parts[0].trim();
+        const content = parts[1].trim();
+        
+        if (intro) addChat(intro, "ai");
+        
+        if (content) {
+            isAIPushingToWrite = true;
+            const textarea = document.getElementById("write-textarea");
+            if (textarea) {
+                const hasVal = textarea.value.trim().length > 0;
+                textarea.value += (hasVal ? "\n\n" : "") + content;
+                syncOverlay();
+                saveState();
+            }
+        }
+        transcriptBuffer = ""; // Clear and start appending chunks directly
+        return;
+    }
+
+    // If we are currently in "pushing" mode (started by a tag)
+    if (isAIPushingToWrite) {
         const textarea = document.getElementById("write-textarea");
         if (textarea) {
-            textarea.value += (textarea.value.endsWith(" ") || !textarea.value ? "" : "\n") + cleanText;
-            if (currentMode !== "write") forceSwitchMode("write");
+            textarea.value += txt; 
             syncOverlay();
             saveState();
         }
+        transcriptBuffer = ""; // Keep buffer clean
     } else {
+        // Normal chat
         addChat(txt, "ai");
+        // Keep limited buffer for split tag detection in next chunks
+        if (transcriptBuffer.length > 500) transcriptBuffer = transcriptBuffer.slice(-200);
     }
 }
 
@@ -204,8 +270,15 @@ function sendMessage(type, payload = {}) {
             type: type,
             ...payload
         }));
+        // REMOVED: isAIPushingToWrite = true. This was the bug.
+        // It must only be set when the tag is found in the stream.
+        if (type === "write_command") {
+            console.log("[AI-WRITE] Command sent. Waiting for tag...");
+        }
     }
 }
+
+
 
 // ================= 5. AUDIO HANDLING =================
 async function playAudioChunk(buffer) {
@@ -260,6 +333,7 @@ function handleLexiTalkingState(isTalking) {
             currentSpeechBubble = null;
         }
     }
+    updateSidekickUI();
 }
 
 // ================= 6. TEXT RENDERING & HIGHLIGHTS =================
@@ -376,17 +450,20 @@ function initDyslexiaFeatures() {
         isRulerActive = !isRulerActive;
         ruler?.classList.toggle("active", isRulerActive);
         rulerToggle.classList.toggle("active-toggle", isRulerActive);
+        if (!isRulerActive && ruler) {
+            ruler.style.display = "none";
+        }
     });
 
     document.addEventListener("mousemove", (e) => {
-        if (isRulerActive && ruler && textDisplay) {
-            const rect = textDisplay.getBoundingClientRect();
-            if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
-                ruler.style.display = "block";
-                ruler.style.top = `${e.clientY - 25}px`;
-            } else {
-                ruler.style.display = "none";
-            }
+        if (!isRulerActive || !ruler || !textDisplay) return;
+        
+        const rect = textDisplay.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+            ruler.style.display = "block";
+            ruler.style.top = `${e.clientY - 25}px`;
+        } else {
+            ruler.style.display = "none";
         }
     });
 
@@ -404,6 +481,19 @@ function initDyslexiaFeatures() {
             document.querySelectorAll(".color-dot").forEach(d => d.classList.remove("active"));
             e.target.classList.add("active");
         });
+    });
+
+    const focusToggle = document.getElementById("focus-mode-toggle");
+    focusToggle?.addEventListener("click", () => {
+        const textDisplay = document.querySelector(".text-display");
+        const isActive = textDisplay.classList.toggle("focus-mode-active");
+        focusToggle.classList.toggle("active-toggle", isActive);
+    });
+
+    const speedSelect = document.getElementById("voice-speed-select");
+    speedSelect?.addEventListener("change", (e) => {
+        audioPlaybackRate = parseFloat(e.target.value);
+        console.log("[SPEED] Playback rate set to:", audioPlaybackRate);
     });
 }
 
@@ -440,6 +530,15 @@ async function takeSnapshot() {
     try {
         const res = await fetch(`${CONFIG.API_URL}/api/upload-image`, { method: "POST", body: formData });
         const data = await res.json();
+        
+        // Show thumbnail
+        const thumb = document.getElementById("snapshot-thumb");
+        const thumbImg = document.getElementById("snapshot-img");
+        if (thumb && thumbImg) {
+            thumbImg.src = URL.createObjectURL(blob);
+            thumb.style.display = "block";
+        }
+
         if (data.full_text) {
             renderTextWithHighlight(data.full_text, true);
             finalizeReadSource();
@@ -453,7 +552,7 @@ async function takeSnapshot() {
 
 // ================= 9. WRITE MODE LOGIC =================
 let writeHistory = [];
-let writeRedoStack = [];
+// writeRedoStack is declared globally to avoid lint errors
 let suggestionTooltip = null;
 
 function initWriteMode() {
@@ -473,9 +572,9 @@ function initWriteMode() {
     document.getElementById("write-readback-btn")?.addEventListener("click", () => speakText(textarea.value));
     document.getElementById("write-submit-btn")?.addEventListener("click", () => fetchSuggestions(textarea.value));
 
-    // Mic buttons
     document.getElementById("write-stt-btn")?.addEventListener("click", () => startWriteMic(true)); // Pure STT
     document.getElementById("write-ai-btn")?.addEventListener("click", () => startWriteMic(false)); // AI Command
+    document.getElementById("write-fix-all-btn")?.addEventListener("click", applyAllCorrections);
     
     // Suggestion interactions - Event Delegation on the overlay
     const overlay = document.getElementById("write-highlight-overlay");
@@ -499,16 +598,12 @@ function initWriteMode() {
 }
 
 function syncOverlay() {
+    if (isDrawingSuggestions) return; // DON'T WIPE OUT RED MARKS
+
     const textarea = document.getElementById("write-textarea");
     const overlay = document.getElementById("write-highlight-overlay");
     if (textarea && overlay) {
-        // If we have error-hints, we might want to skip syncing if the plain text matches
-        const currentOverlayText = overlay.textContent.replace(/\u200b/g, "");
-        if (currentOverlayText === textarea.value) {
-            overlay.scrollTop = textarea.scrollTop;
-            return;
-        }
-        
+        // Hard sync
         overlay.textContent = textarea.value + "\u200b";
         overlay.scrollTop = textarea.scrollTop;
     }
@@ -519,7 +614,6 @@ function saveState() {
     if (!writeHistory.length || writeHistory[writeHistory.length-1] !== val) {
         writeHistory.push(val);
         if (writeHistory.length > 50) writeHistory.shift();
-        writeRedoStack = [];
     }
     localStorage.setItem("lexi_write_session", val);
 }
@@ -572,36 +666,58 @@ const debouncedPredict = debounce(async (text) => {
 }, 400);
 
 const debouncedSuggest = debounce((text) => {
-    if (text.length > 10) fetchSuggestions(text);
-}, 2000);
+    if (text.length > 5) fetchSuggestions(text); // Reduced min length
+}, 400); // Reduced delay for faster underlines
 
 async function fetchSuggestions(text) {
     const overlay = document.getElementById("write-highlight-overlay");
-    if (!overlay) return;
+    const textarea = document.getElementById("write-textarea");
+    if (!overlay || !textarea) return;
 
+    // GHOST LINE FIX: Clear everything before starting the new fetch
+    overlay.innerHTML = textarea.value + "\u200b";
+    
+    isDrawingSuggestions = true;
     try {
         const res = await fetch(`${CONFIG.API_URL}/api/write-suggest`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text })
         });
         const data = await res.json();
+        console.log("[SUGGESTIONS] Received:", data);
         
         let html = text + "\u200b";
-        if (data.suggestions?.length) {
+        if (data.suggestions && data.suggestions.length > 0) {
             data.suggestions.forEach(s => {
-                const match = s.match(/"([^"]+)"/);
-                const corrMatch = s.match(/with "([^"]+)"|to "([^"]+)"/i);
-                if (match && match[1]) {
-                    const word = match[1];
-                    const corr = corrMatch ? (corrMatch[1] || corrMatch[2]) : "Lexi suggests fixing this";
+                if (s.original && s.replacement) {
+                    const word = s.original;
+                    const corr = s.replacement;
+                    // Precise word boundary replacement
                     const regex = new RegExp(`\\b(${word})\\b`, 'gi');
                     html = html.replace(regex, `<span class="error-hint" data-correction="${corr}">$1</span>`);
                 }
             });
             overlay.innerHTML = html;
+            overlay.scrollTop = textarea.scrollTop;
+
+            // Show Fix All button if >= 2 errors
+            const fixAllBtn = document.getElementById("write-fix-all-btn");
+            if (fixAllBtn) {
+                fixAllBtn.style.display = data.suggestions.length >= 2 ? "flex" : "none";
+            }
+
             initHoverSuggestions();
+        } else {
+            isDrawingSuggestions = false;
+            const fixAllBtn = document.getElementById("write-fix-all-btn");
+            if (fixAllBtn) fixAllBtn.style.display = "none";
+            syncOverlay(); // Clean up if no suggestions
         }
-    } catch {}
+    } catch (err) {
+        console.error("[SUGGESTIONS] Fetch failed:", err);
+    } finally {
+        isDrawingSuggestions = false;
+    }
 }
 
 function initHoverSuggestions() {
@@ -645,7 +761,7 @@ function initHoverSuggestions() {
         hint.onmouseout = () => {
             suggestionTooltip._hideTimeout = setTimeout(() => {
                 suggestionTooltip.style.display = "none";
-            }, 200);
+            }, 50); // Near-instant hiding
         };
     });
 }
@@ -660,9 +776,62 @@ window.applyCorrection = function(original, replacement) {
     textarea.value = oldText.replace(regex, replacement);
     
     if (suggestionTooltip) suggestionTooltip.style.display = "none";
-    syncOverlay();
+    
+    // SAVE STATE FIRST
     saveState();
+    
+    // INSTEAD of generic sync, triggered immediate RE-SUGGEST
+    // This solves the "vanishing red lines" problem
+    fetchSuggestions(textarea.value);
+    
     addChat(`✅ Fixed "${original}" to "${replacement}"`, "ai");
+};
+
+window.applyAllCorrections = async function() {
+    const textarea = document.getElementById("write-textarea");
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (!textarea || !overlay) return;
+
+    // Get all corrections currently visible in the overlay
+    const hints = Array.from(overlay.querySelectorAll(".error-hint"));
+    if (hints.length === 0) return;
+
+    let text = textarea.value;
+    let count = 0;
+
+    // Use a Map to store unique corrections to avoid double-replacing
+    const uniqueCorrections = new Map();
+    hints.forEach(hint => {
+        const original = hint.textContent;
+        const correction = hint.getAttribute("data-correction");
+        if (correction && correction !== "Suggestion available") {
+            uniqueCorrections.set(original, correction);
+        }
+    });
+
+    // Apply all unique corrections
+    uniqueCorrections.forEach((correction, original) => {
+        const regex = new RegExp(`\\b${original}\\b`, 'gi');
+        if (regex.test(text)) {
+            text = text.replace(regex, correction);
+            count++;
+        }
+    });
+
+    textarea.value = text;
+    saveState();
+    
+    const fixAllBtn = document.getElementById("write-fix-all-btn");
+    if (fixAllBtn) fixAllBtn.style.display = "none";
+    
+    // GHOST LINE FIX: Immediately clear all marks from the overlay
+    overlay.innerHTML = textarea.value + "\u200b";
+    overlay.scrollTop = textarea.scrollTop;
+    
+    addChat(`✨ One-click Magic: Fixed ${count} mistakes!`, "ai");
+    
+    // Refresh to clear any remaining underlines or find new ones
+    fetchSuggestions(textarea.value);
 };
 
 // ================= 10. VOICE & STT =================
@@ -759,7 +928,7 @@ function startWriteMic(isSTT = true) {
     writeSpeechRecognizer.onerror = () => stopWriteMic();
     writeSpeechRecognizer.onend = () => { if (isWriteMicOn) writeSpeechRecognizer.start(); };
     writeSpeechRecognizer.start();
-    addChat(isSTT ? "Dictating..." : "Say 'Lexi, help me write...'", "user");
+    addChat(isSTT ? "Listening... 🎙" : "Listening for your request... ✨ (e.g. 'Please help me write a story')", "ai");
 }
 
 function stopWriteMic() {
@@ -828,6 +997,78 @@ function initVisionFormMode() {
     document.getElementById("form-share-btn")?.addEventListener("click", startFormScreenShare);
     document.getElementById("form-upload-btn")?.addEventListener("click", triggerFormImageUpload);
     document.getElementById("form-switch-source")?.addEventListener("click", resetFormSource);
+    document.getElementById("form-popout-btn")?.addEventListener("click", toggleSidekick);
+}
+
+async function toggleSidekick() {
+    if (sidekickWindow) {
+        sidekickWindow.close();
+        sidekickWindow = null;
+        return;
+    }
+
+    if (!('documentPictureInPicture' in window)) {
+        addChat("Sorry, your browser doesn't support the Sidekick feature. Try using Chrome or Edge.", "ai");
+        return;
+    }
+
+    try {
+        // Open the Pip window - reduced size for "Lexi Bubble"
+        sidekickWindow = await window.documentPictureInPicture.requestWindow({
+            width: 240,
+            height: 240,
+        });
+
+        // Copy styles to the new window
+        const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'));
+        styleLinks.forEach((link) => {
+            sidekickWindow.document.head.appendChild(link.cloneNode(true));
+        });
+
+        // Add the Sidekick UI from template
+        const template = document.getElementById('sidekick-template');
+        const sidekickContent = template.content.cloneNode(true);
+        sidekickWindow.document.body.appendChild(sidekickContent);
+
+        // Bind Sidekick controls
+        const pipMic = sidekickWindow.document.getElementById('sidekick-mic');
+        pipMic.onclick = () => {
+            toggleMic();
+            updateSidekickUI();
+        };
+
+        sidekickWindow.onpagehide = () => {
+            sidekickWindow = null;
+            console.log("[SIDEKICK] Window closed");
+        };
+
+        updateSidekickUI();
+        addChat("🚀 Lexi Sidekick is now active! You can switch to other tabs.", "ai");
+    } catch (err) {
+        console.error("[SIDEKICK] Failed to open:", err);
+    }
+}
+
+function updateSidekickUI() {
+    if (!sidekickWindow) return;
+    const doc = sidekickWindow.document;
+    const mic = doc.getElementById('sidekick-mic');
+    const status = doc.getElementById('sidekick-status');
+    const ring = doc.querySelector('.avatar-ring');
+    
+    if (isRecording) {
+        mic.classList.add('recording');
+        status.textContent = "Lexi is listening...";
+        if (ring) ring.style.animationPlayState = "running";
+    } else if (isLexiTalking) {
+        mic.classList.remove('recording');
+        status.textContent = "Lexi is speaking...";
+        if (ring) ring.style.animationPlayState = "running";
+    } else {
+        mic.classList.remove('recording');
+        status.textContent = "Lexi Sidekick";
+        if (ring) ring.style.animationPlayState = "paused";
+    }
 }
 
 async function startFormScreenShare() {
@@ -840,6 +1081,10 @@ async function startFormScreenShare() {
         showFormActiveView();
         addChat("Screen sharing active!", "ai");
         formStream.getTracks()[0].onended = resetFormSource;
+        
+        // Start vision loop
+        if (visionInterval) clearInterval(visionInterval);
+        visionInterval = setInterval(captureAndSendFrame, 2000);
     } catch (err) { console.error(err); }
 }
 
@@ -887,8 +1132,28 @@ function showFormActiveView() {
 function resetFormSource() {
     if (formStream) formStream.getTracks().forEach(t => t.stop());
     formStream = null;
+    if (visionInterval) { clearInterval(visionInterval); visionInterval = null; }
     document.getElementById("form-source-selector").style.display = "block";
     document.getElementById("form-active-view").style.display = "none";
+}
+
+async function captureAndSendFrame() {
+    if (!formStream || !ws || ws.readyState !== WebSocket.OPEN) return;
+    
+    const video = document.getElementById("form-screen-video");
+    if (video.videoWidth === 0) return;
+
+    // Scale down for performance
+    const scale = 0.5;
+    visionCanvas.width = video.videoWidth * scale;
+    visionCanvas.height = video.videoHeight * scale;
+    
+    const ctx = visionCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, visionCanvas.width, visionCanvas.height);
+    
+    // Low quality JPEG to save bandwidth
+    const base64 = visionCanvas.toDataURL('image/jpeg', 0.4);
+    sendMessage("vision_frame", { data: base64 });
 }
 
 // ================= 13. UI HELPERS & EVENTS =================
@@ -916,6 +1181,15 @@ function setupEvents() {
         document.getElementById("privacy-modal").classList.remove("show");
         initSession();
     });
+
+    document.getElementById("view-original-btn")?.addEventListener("click", () => switchView("original"));
+    document.getElementById("view-analyzed-btn")?.addEventListener("click", () => switchView("analyzed"));
+    
+    document.getElementById("reading-tools-btn")?.addEventListener("click", () => {
+        const panel = document.getElementById("reading-tools-panel");
+        panel.classList.toggle("hidden");
+        document.getElementById("reading-tools-btn").classList.toggle("active-toggle");
+    });
     
     // Global delegation for difficult word tooltips
     document.addEventListener("mouseover", handleGlobalTooltip);
@@ -936,6 +1210,7 @@ function toggleMic() {
         document.getElementById("mic-btn").classList.remove("recording");
         stopMic();
     }
+    updateSidekickUI(); // Sync Sidekick window if open
 }
 
 async function startMic() {
@@ -1031,9 +1306,14 @@ function forceSwitchMode(mode) {
     document.getElementById("read-source-selector").style.display = (isRead && !isRealContentActive) ? "block" : "none";
     document.getElementById("reading-text").style.display = hasContent ? "block" : "none";
     document.getElementById("change-source-btn").style.display = hasContent ? "block" : "none";
-    document.getElementById("view-toggle-container").style.display = (hasContent && rawText.length > 50) ? "flex" : "none";
+    document.getElementById("view-toggle-container").style.display = (hasContent && rawText.length > 10) ? "flex" : "none";
 
     sendMessage("mode", { mode });
+
+    // Automation: Auto-pop sidekick if in Form mode
+    if (mode === "form" && !sidekickWindow) {
+        setTimeout(toggleSidekick, 500); 
+    }
 }
 
 function speakText(text) {
@@ -1074,7 +1354,30 @@ function finalizeReadSource() {
     document.getElementById("read-source-selector").style.display = "none";
     document.getElementById("reading-text").style.display = "block";
     document.getElementById("change-source-btn").style.display = "block";
-    if (rawText.length > 50) document.getElementById("view-toggle-container").style.display = "flex";
+    if (rawText.length > 10) document.getElementById("view-toggle-container").style.display = "flex";
+}
+
+let currentView = "original";
+async function switchView(type) {
+    if (type === currentView) return;
+    const container = document.getElementById("reading-text");
+    const originalBtn = document.getElementById("view-original-btn");
+    const analyzedBtn = document.getElementById("view-analyzed-btn");
+
+    if (type === "analyzed") {
+        if (!analyzedHTML) {
+            addChat("Wait a moment, I'm still preparing those notes for you! ✨", "ai");
+            return;
+        }
+        container.innerHTML = analyzedHTML;
+        analyzedBtn.classList.add("active-toggle");
+        originalBtn.classList.remove("active-toggle");
+    } else {
+        container.innerHTML = originalHTML;
+        originalBtn.classList.add("active-toggle");
+        analyzedBtn.classList.remove("active-toggle");
+    }
+    currentView = type;
 }
 
 function resetReadSource() {
@@ -1085,6 +1388,10 @@ function resetReadSource() {
     document.getElementById("read-source-selector").style.display = "block";
     document.getElementById("change-source-btn").style.display = "none";
     document.getElementById("view-toggle-container").style.display = "none";
+    
+    // Hide thumbnail
+    const thumb = document.getElementById("snapshot-thumb");
+    if (thumb) thumb.style.display = "none";
 }
 
 function handleGlobalTooltip(e) {
@@ -1131,6 +1438,15 @@ function addChat(text, sender) {
     div.textContent = text;
     area.appendChild(div);
     area.scrollTop = area.scrollHeight;
+
+    // Sync to Sidekick transcript
+    if (sidekickWindow) {
+        const transcript = sidekickWindow.document.querySelector('.sidekick-transcript');
+        if (transcript) {
+            transcript.textContent = text.length > 60 ? text.substring(0, 57) + "..." : text;
+        }
+    }
+
     return div;
 }
 
@@ -1169,4 +1485,43 @@ function decreaseFont() {
             if (size > 14) el.style.fontSize = (size - 2) + "px";
         }
     });
+}
+
+function initSelectionHandler() {
+    const popup = document.getElementById("selection-popup");
+    const container = document.getElementById("reading-text");
+    const explainBtn = document.getElementById("explain-selection-btn");
+
+    if (!popup || !container || !explainBtn) return;
+
+    document.addEventListener("mouseup", (e) => {
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+
+        if (selectedText.length > 0 && container.contains(selection.anchorNode)) {
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+
+            popup.style.display = "block";
+            popup.style.left = `${rect.left + rect.width / 2}px`;
+            popup.style.top = `${rect.top - 40 + window.scrollY}px`;
+        } else {
+            // Only hide if we didn't click inside the popup itself
+            if (!popup.contains(e.target)) {
+                popup.style.display = "none";
+            }
+        }
+    });
+
+    explainBtn.onclick = () => {
+        const selection = window.getSelection().toString().trim();
+        if (selection) {
+            addChat(`Explain: "${selection}"`, "user");
+            sendMessage("explain_selection", {
+                context: rawText,
+                selection: selection
+            });
+            popup.style.display = "none";
+        }
+    };
 }

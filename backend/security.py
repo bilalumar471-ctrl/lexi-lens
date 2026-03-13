@@ -86,6 +86,7 @@ ALLOWED_MESSAGE_TYPES: dict[str, set[str]] = {
     "stop_explanation": {"session_token"},
     "write_command": {"session_token", "command", "current_text"},
     "mode_context": {"session_token", "mode", "context"},
+    "vision_frame": {"session_token", "data"},
 }
 
 
