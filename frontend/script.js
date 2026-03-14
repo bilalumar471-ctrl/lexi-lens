@@ -31,6 +31,8 @@ let micStream = null;
 let playbackContext = null;
 let audioQueue = [];
 let isPlaying = false;
+let nextAudioTime = 0;
+let scheduledSources = [];
 
 // Feature B: Web Speech API STT
 let speechRecognizer = null;
@@ -277,9 +279,18 @@ async function toggleScreenReader() {
     const video = document.createElement("video"); video.srcObject = stream; await video.play();
     const canvas = document.createElement("canvas"); canvas.width = 1280; canvas.height = 720;
     const ctx = canvas.getContext("2d");
+    let lastSelectedText = "";
     screenCaptureInterval = setInterval(() => {
       ctx.drawImage(video, 0, 0, 1280, 720);
-      sendMessage("screen_frame", { frame: canvas.toDataURL("image/jpeg", 0.6).split(",")[1] });
+      const selectedText = window.getSelection().toString().trim();
+      let payload = { frame: canvas.toDataURL("image/jpeg", 0.6).split(",")[1] };
+      if (selectedText && selectedText !== lastSelectedText) {
+        payload.selected_text = selectedText;
+        lastSelectedText = selectedText;
+      } else if (!selectedText) {
+        lastSelectedText = "";
+      }
+      sendMessage("screen_frame", payload);
     }, 2000);
     stream.getVideoTracks()[0].onended = () => { if (screenCaptureInterval) toggleScreenReader(); };
   } catch (err) { addChat("Screen reader failed to start.", "ai"); }
@@ -327,7 +338,8 @@ function stopMic() {
   if (audioCtx) audioCtx.close();
   if (micStream) micStream.getTracks().forEach(t => t.stop());
   if (speechRecognizer) try { speechRecognizer.stop(); } catch (e) { }
-  isLexiTalking = false; isPlaying = false; audioQueue = [];
+  isLexiTalking = false; 
+  stopLexiAudio();
 }
 
 // ================= FILE UPLOAD =================
@@ -603,12 +615,26 @@ async function safeAudioContext() {
 async function playAudioChunk(buf) {
   await safeAudioContext();
   audioQueue.push(buf);
-  if (!isPlaying) drainQueue();
+  if (!isPlaying) {
+    nextAudioTime = playbackContext.currentTime;
+    isPlaying = true;
+    drainQueue();
+  }
+}
+
+function stopLexiAudio() {
+  audioQueue = [];
+  scheduledSources.forEach(s => {
+    try { s.stop(); } catch(e) {}
+  });
+  scheduledSources = [];
+  isPlaying = false;
+  sendMessage("stop_speaking", {});
 }
 
 async function drainQueue() {
   if (!audioQueue.length) { isPlaying = false; return; }
-  isPlaying = true;
+  
   try {
     const buf = audioQueue.shift();
     const int16Array = new Int16Array(buf);
@@ -624,12 +650,24 @@ async function drainQueue() {
     // audioPlaybackRate is set when speed changes. Default 1.0.
     source.playbackRate.value = typeof audioPlaybackRate !== 'undefined' ? audioPlaybackRate : 1.0;
     source.connect(playbackContext.destination);
-    source.onended = drainQueue;
-    source.start();
+    
+    source.onended = () => {
+      const idx = scheduledSources.indexOf(source);
+      if (idx > -1) scheduledSources.splice(idx, 1);
+    };
+    scheduledSources.push(source);
+
+    const startTime = Math.max(playbackContext.currentTime, nextAudioTime);
+    source.start(startTime);
+    
+    const duration = audioBuffer.duration / source.playbackRate.value;
+    nextAudioTime = startTime + duration;
+
+    // Immediately schedule next buffer
+    setTimeout(drainQueue, 0);
   } catch (e) {
     console.error("Audio playback error", e);
     isPlaying = false;
-    drainQueue();
   }
 }
 
@@ -656,6 +694,7 @@ function showInlineError(msg) {
 
 function setupEvents() {
   document.getElementById("mic-btn")?.addEventListener("click", toggleMic);
+  document.getElementById("stop-lexi-btn")?.addEventListener("click", stopLexiAudio);
   document.getElementById("snapshot-btn")?.addEventListener("click", takeSnapshot);
   document.getElementById("upload-btn")?.addEventListener("click", () => document.getElementById("file-input").click());
   document.getElementById("file-input")?.addEventListener("change", handleUpload);

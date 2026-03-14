@@ -154,6 +154,19 @@ class LexiAgent:
                 self._session_cm = None
                 logger.info("Lexi Live session closed")
 
+    async def stop_speaking(self) -> None:
+        """Interrupt the current speech."""
+        if not self._session or self._session_dead.is_set():
+            return
+        
+        try:
+            # Send a client content turn to interrupt
+            await self._session.send(input="Stop speaking.", end_of_turn=True)
+            self._turn_done.clear()
+            logger.info("LexiAgent interrupted speech.")
+        except Exception as e:
+            logger.warning(f"Failed to send stop command: {e}")
+
     async def send_audio(self, chunk: bytes) -> None:
         if not self._session:
             raise RuntimeError("LexiAgent is not connected. Call connect() first.")

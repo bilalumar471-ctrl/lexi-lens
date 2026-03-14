@@ -409,6 +409,10 @@ async def ws_session(websocket: WebSocket):
                             logger.info("Write command: %s", cmd)
                             await agent.handle_write_command(cmd, curr, websocket)
 
+                        elif msg_type == "stop_speaking":
+                            logger.info("Stop speaking request received")
+                            await agent.stop_speaking()
+
                         # ----- Dictation -----
                         elif msg_type == "dictation":
                             audio_b64 = msg.get("audio", "")
@@ -436,21 +440,32 @@ async def ws_session(websocket: WebSocket):
                         # ----- Screen Reader -----
                         elif msg_type == "screen_frame":
                             frame_b64 = msg.get("frame", "")
+                            selected_text = msg.get("selected_text", "")
                             logger.info("Screen reader request received")
-                            narration = await ScreenReader.describe(frame_b64)
-                            await websocket.send_json({
-                                "type": "screen_narration",
-                                "text": narration,
-                            })
-                            # Optionally speak through Live API
-                            if narration and agent._session and not agent._session_dead.is_set():
-                                try:
-                                    await agent._session.send(
-                                        input=f"Read this aloud naturally: {narration}",
-                                        end_of_turn=True,
-                                    )
-                                except Exception as e:
-                                    logger.warning(f"Screen reader speech failed: {e}")
+                            
+                            if selected_text:
+                                narration = f"Read this selected text aloud: {selected_text}"
+                            else:
+                                raw_narration = await ScreenReader.describe(frame_b64)
+                                if raw_narration:
+                                    narration = f"Here is what is on the screen: {raw_narration}"
+                                else:
+                                    narration = ""
+
+                            if narration:
+                                await websocket.send_json({
+                                    "type": "screen_narration",
+                                    "text": narration,
+                                })
+                                # Optionally speak through Live API
+                                if agent._session and not agent._session_dead.is_set():
+                                    try:
+                                        await agent._session.send(
+                                            input=narration,
+                                            end_of_turn=True,
+                                        )
+                                    except Exception as e:
+                                        logger.warning(f"Screen reader speech failed: {e}")
 
                         # ----- Reading Speed -----
                         elif msg_type == "speed_command":
