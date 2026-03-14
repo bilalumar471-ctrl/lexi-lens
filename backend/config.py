@@ -23,7 +23,7 @@ from pydantic_settings import BaseSettings
 
 def _resolve_frontend_url() -> str:
     """Resolve the frontend URL for CORS allowed origins."""
-    url = os.getenv("FRONTEND_URL", "https://bilalumar471-ctrl.github.io/lexi-lens/")
+    url = os.getenv("FRONTEND_URL", "https://bilalumar471-ctrl.github.io")
     return url
 
 
