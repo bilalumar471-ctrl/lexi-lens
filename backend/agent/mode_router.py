@@ -56,6 +56,46 @@ SUBJECT_MODES: dict[str, dict[str, str]] = {
             "Never skip steps. Ask the user if they want to try one themselves."
         ),
     },
+    "book": {
+        "label": "Book",
+        "keywords": "chapter page book read story novel paragraph sentence text passage reading",
+        "prompt_addition": (
+            "The user is reading a book. "
+            "Read at a calm, steady pace. Pause naturally between paragraphs. "
+            "If the user seems stuck on a word, offer a quick, friendly definition. "
+            "Keep explanations story-focused and avoid spoilers."
+        ),
+    },
+    "form": {
+        "label": "Form",
+        "keywords": "form field fill name address date signature submit application checkbox dropdown",
+        "prompt_addition": (
+            "The user is filling in a form. "
+            "Read each label and field clearly. Explain what each field expects. "
+            "For complex fields (e.g. dates, addresses), give an example. "
+            "Be patient and let the user dictate their answers."
+        ),
+    },
+    "study": {
+        "label": "Study",
+        "keywords": "study revision exam test quiz question answer learn review practice homework",
+        "prompt_addition": (
+            "The user is studying. "
+            "Summarise key points clearly. After reading a section, offer a quick recap. "
+            "Ask simple comprehension questions to check understanding. "
+            "Encourage the user and keep the pace steady."
+        ),
+    },
+    "write": {
+        "label": "Write",
+        "keywords": "write compose draft essay type text create paragraph letter email report",
+        "prompt_addition": (
+            "The user is writing with your help. "
+            "Listen to their dictation carefully. Suggest better word choices gently. "
+            "Help with spelling and grammar without being critical. "
+            "If they say 'help me write', offer sentence starters or continuations."
+        ),
+    },
     "general": {
         "label": "General",
         "keywords": "",

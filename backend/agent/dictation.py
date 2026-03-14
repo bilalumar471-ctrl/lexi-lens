@@ -84,7 +84,7 @@ class DictationEngine:
                 ],
             )
             raw = (response.text or "").strip()
-            logger.info("Dictation transcribed: %s", raw[:120])
+            logger.info("Dictation transcribed, length=%d", len(raw))
             return raw
         except Exception as e:
             logger.error("Dictation transcription failed: %s", e)

@@ -45,7 +45,7 @@ limiter = Limiter(key_func=get_remote_address)
 # Manual WS rate-limit store: {ip: [timestamp, ...]}
 _ws_connections: dict[str, list[float]] = defaultdict(list)
 
-WS_RATE_LIMIT = 1000        # max connections
+WS_RATE_LIMIT = 10          # max connections per IP per hour
 WS_RATE_WINDOW = 3600       # per hour (seconds)
 
 
@@ -75,14 +75,21 @@ def check_ws_rate_limit(ip: str) -> bool:
 
 # Maps message type → set of required keys (beyond "type" itself).
 ALLOWED_MESSAGE_TYPES: dict[str, set[str]] = {
-    "audio":          set(),
-    "mode":           {"mode"},
-    "text":           {"message"},
-    "snapshot":       set(),
-    "dictation":      set(),
-    "dictation_edit": {"edits"},
-    "speed":          {"speed"},
-    "screen_frame":   {"frame"},
+    "audio":            set(),
+    "init":             set(),
+    "mode":             {"mode"},
+    "text":             {"message"},
+    "snapshot":         set(),
+    "explain":          {"text"},
+    "explain_selection": {"context", "selection"},
+    "set_context":      {"text"},
+    "write_command":    {"command", "current_text"},
+    "dictation":        set(),
+    "dictation_accept": {"text"},
+    "dictation_edit":   {"edits"},
+    "speed":            {"speed"},
+    "speed_command":    {"text"},
+    "screen_frame":     {"frame"},
 }
 
 

@@ -1,0 +1,2683 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LexiLens UI</title>
+
+  <meta http-equiv="Content-Security-Policy" content="
+default-src 'self';
+img-src 'self' blob: data:;
+media-src 'self' blob: mediastream:;
+connect-src 'self'
+https://*.run.app wss://*.run.app
+http://127.0.0.1:8000 ws://127.0.0.1:8000
+http://localhost:8000 ws://localhost:8000;
+script-src 'self' 'unsafe-inline';
+style-src 'self' 'unsafe-inline';
+">
+
+  <style>
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('OpenDyslexic-Regular.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #FAFAFA;
+  --panel: #FFFFFF;
+  --text-strong: #1A1A1A;
+  --text-subtle: #5a5a5a;
+  --border: #E0E0E0;
+
+  --brand-purple: #7B2D8B;
+  --brand-teal: #117A65;
+  --g1: #7B2D8B;
+  --g2: #117A65;
+
+  --radius-lg: 20px;
+  --shadow-1: 0 2px 6px rgba(0,0,0,0.06);
+  --shadow-2: 0 10px 20px rgba(17, 24, 39, 0.06);
+
+  --dyslexic-font: Arial, 'OpenDyslexic', 'Comic Sans MS', sans-serif;
+}
+
+/* ================= DARK THEME (#27) ================= */
+.dark-mode {
+  --bg: #1a1a2e;
+  --panel: #16213e;
+  --text-strong: #e0e0e0;
+  --text-subtle: #a0a0b0;
+  --border: #2a2a4a;
+  --brand-purple: #a855f7;
+  --brand-teal: #2dd4bf;
+  --g1: #a855f7;
+  --g2: #2dd4bf;
+  --shadow-1: 0 2px 6px rgba(0,0,0,0.3);
+  --shadow-2: 0 10px 20px rgba(0,0,0,0.4);
+}
+
+.dark-mode body { background: var(--bg); color: var(--text-strong); }
+.dark-mode .unified-card { background: var(--panel); }
+.dark-mode .right-unified-card { background: #1e1e3a; }
+.dark-mode .btn { background: var(--panel); color: var(--text-strong); border-color: var(--border); }
+.dark-mode .btn:hover { background: linear-gradient(120deg, #2a1a4a, #1a2a3a); }
+.dark-mode .btn-outline { background: var(--panel); color: var(--text-strong); border-color: var(--border); }
+.dark-mode .control-bar { background: var(--panel); }
+.dark-mode .tools-panel { background: var(--panel); border-color: var(--border); }
+.dark-mode .chat-message.ai { background: linear-gradient(135deg, #4a2080 0%, #2a1050 100%); color: #e8e0f8; }
+.dark-mode .chat-message.user { background: rgba(200,200,220,0.15); color: var(--text-strong); }
+.dark-mode .modal-content { background: var(--panel); color: var(--text-strong); }
+.dark-mode .mode-overlay-content { background: rgba(22, 33, 62, 0.95); }
+.dark-mode .mode-overlay-title { color: var(--text-strong); }
+.dark-mode .mode-overlay-close { color: var(--text-strong); border-color: var(--border); }
+.dark-mode #reading-text { color: var(--text-strong); }
+.dark-mode .active-word { background: rgba(168, 85, 247, 0.3); }
+.dark-mode .difficult-word { color: #c084fc; text-decoration-color: #7c3aed; }
+.dark-mode .camera-feed { background: #0f0f2e; }
+.dark-mode #video { background: #0f0f2e; }
+.dark-mode .dictation-text { color: var(--text-strong); }
+.dark-mode .write-mode-panel textarea { background: var(--panel); color: var(--text-strong); border-color: var(--border); }
+
+
+/* ================= RESET & BASE ================= */
+body {
+  margin: 0;
+  font-family: var(--dyslexic-font);
+  font-size: 18px;
+  background: var(--bg);
+  color: var(--text-strong);
+  letter-spacing: 0.05em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ================= MAIN LAYOUT ================= */
+.main-layout {
+  display: flex;
+  gap: 24px;
+  padding: 24px 40px 24px 24px;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* ================= LEFT PANEL (Resizable) ================= */
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  width: 35%; /* Default width */
+  min-width: 250px; /* Prevent shrinking too much */
+  max-width: 60%; /* Prevent expanding too much */
+  resize: horizontal; /* Enables native dragging on the right edge */
+  overflow: auto; /* Required for resize to work */
+  padding-right: 12px; /* Breathing room for the drag handle */
+}
+
+/* ================= RIGHT PANEL ================= */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1; /* Takes up remaining space */
+  min-width: 0;
+  height: 100%;
+}
+
+/* ================= UNIFIED CARDS ================= */
+.unified-card {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  height: 100%;
+  overflow: hidden;
+}
+
+    
+
+.right-unified-card {
+  background: #FFFDF7; /* Warmer background for reading */
+}
+
+/* ================= CAMERA CARD (Now just content) ================= */
+.unified-camera {
+  padding: 16px 16px 4px 16px; /* Top, Right, Bottom, Left. Bottom is smaller because chat is below it */
+}
+
+.camera-feed {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #FAFBFF;
+  aspect-ratio: 16 / 9;
+}
+.camera-feed { box-shadow: 0 1px 0 rgba(0,0,0,0.06); }
+.camera-feed::after { display:none; }
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #FAFBFF;
+  border-radius: 16px;
+}
+
+/* ================= OVERLAY BUTTONS ================= */
+.camera-overlay { position: static; bottom: auto; left: auto; }
+
+.btn {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--dyslexic-font);
+  background: #fff;
+  color: var(--text-strong);
+  box-shadow: var(--shadow-1);
+  transition: background .2s ease, border-color .2s ease, transform .12s ease;
+}
+.btn:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+  border-color: #DAD5FF;
+  transform: translateY(-1px);
+}
+
+.mic-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  position: relative;
+  overflow: hidden;
+  transition: transform .2s ease, background .2s ease, border-color .2s ease, color .2s ease;
+}
+.mic-btn::before {
+  content: "";
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  width: 22px;
+  height: 2px;
+  background: #10b981;
+  border-radius: 4px;
+  transform: translateX(-50%);
+  transition: all .08s linear;
+}
+.mic-btn.recording {
+  background: #F6FFFA;
+  border-color: #BBF7D0;
+  color: #065f46;
+  box-shadow:
+    0 0 0 3px rgba(16,185,129,0.08),
+    var(--shadow-1);
+}
+.mic-btn.recording::before {
+  height: calc(2px + (var(--energy, 0) * 16px));
+  opacity: 0.9;
+}
+
+.mic-btn.silent::before {
+  height: 2px !important;
+  opacity: 0.5;
+}
+@keyframes pulse {
+  0%   { transform: translateX(-50%) scale(1);   opacity: .35; }
+  50%  { transform: translateX(-50%) scale(1.8); opacity: .8;  }
+  100% { transform: translateX(-50%) scale(1);   opacity: .35; }
+}
+
+/* ================= VOICE VISUALISER (#3) ================= */
+.mic-vis-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  position: relative;
+}
+
+.voice-visualiser {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  height: 80px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.voice-visualiser.active {
+  display: flex;
+}
+
+.vis-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(139, 92, 246, 0.35);
+  animation: pulse-ring 1.8s ease-in-out infinite;
+}
+
+.vis-ring:nth-child(1) {
+  width: 44px; height: 44px;
+  animation-delay: 0s;
+}
+.vis-ring:nth-child(2) {
+  width: 60px; height: 60px;
+  animation-delay: 0.3s;
+}
+.vis-ring:nth-child(3) {
+  width: 76px; height: 76px;
+  animation-delay: 0.6s;
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.8); opacity: 0.6; }
+  50%  { transform: scale(1.2); opacity: 0.15; }
+  100% { transform: scale(0.8); opacity: 0.6; }
+}
+
+.camera-frame {
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px 12px 10px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+}
+
+/* ================= RIGHT PANEL ================= */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding-top: 0;
+}
+
+.panel-title {
+  font-weight: bold;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+/* ================= TEXT DISPLAY (Phase 2 Formats) ================= */
+.text-display {
+  position: relative;
+  padding: 20px 22px 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden; /* Prevent horizontal scroll from overflowing tooltips */
+}
+
+#reading-text {
+  font-family: var(--dyslexic-font);
+  font-size: 20px;
+  line-height: 1.8;
+  max-width: 700px;
+  margin: 0;
+  padding: 10px;
+  min-height: 150px;
+  letter-spacing: 0.05em;
+  word-spacing: 0.1em;
+  transition: background 0.2s, outline 0.2s;
+}
+
+#reading-text.dragover {
+  background: rgba(169, 140, 255, 0.1);
+  outline: 2px dashed #A98CFF;
+  border-radius: 8px;
+}
+
+.text-display::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(90deg, var(--g1), var(--g2));
+}
+
+/* Word spans — more clickable area for dyslexic users */
+.word {
+  padding: 2px 1px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+  position: relative; /* Anchor for tooltips */
+}
+.word:hover {
+  background: rgba(169, 140, 255, 0.1);
+}
+
+/* Bionic Reading bolding */
+.word b {
+  font-weight: 700;
+  color: #111; /* Slightly darker than normal text for better contrast */
+}
+
+/* ================= CHAT HISTORY ================= */
+.chat-history {
+  padding: 15px 15px 15px 15px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(0,0,0,0.05); /* Separator inside left card */
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-behavior: smooth;
+}
+
+/* ================= CHAT MESSAGES BASE ================= */
+.chat-message {
+  padding: 10px 14px;
+  border-radius: 12px;
+  max-width: 62%;
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0.03em;
+  word-wrap: break-word;
+  animation: fadeIn 0.25s ease;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin: 0;
+}
+
+/* ================= AI BUBBLE (left) ================= */
+.chat-message.ai {
+  align-self: flex-start;
+  margin-right: auto;
+  margin-left: 0;
+  background: linear-gradient(135deg, #d8b4fe 0%, #f3e8ff 100%);
+  color: #1f2933;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.3),
+    0 3px 10px rgba(0,0,0,0.1);
+  backdrop-filter: blur(4px);
+}
+
+/* ================= USER BUBBLE (right) ================= */
+.chat-message.user {
+  align-self: flex-end;
+  margin-left: auto;
+  margin-right: 0;
+  background: rgba(75,85,99,0.2);
+  color: #1f2933;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    0 3px 10px rgba(0,0,0,0.1);
+}
+
+/* ================= HOVER EFFECT ================= */
+.chat-message:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* ================= FADE-IN ANIMATION ================= */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ================= SCROLLBAR ================= */
+.chat-history::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-history::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+.text-display::-webkit-scrollbar {
+  width: 8px;
+}
+.text-display::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+
+
+/* ================= ACTIVE WORD HIGHLIGHT ================= */
+.active-word {
+  background: #F9E79F;
+  border-radius: 3px;
+  transition: 0.15s;
+}
+
+/* ================= ACTIVE SENTENCE HIGHLIGHT ================= */
+.sentence {
+  display: inline;
+  transition: background 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
+  border-radius: 6px;
+  padding: 2px 0;
+}
+
+.active-sentence {
+  background: linear-gradient(135deg, rgba(169, 140, 255, 0.15), rgba(110, 168, 255, 0.15));
+  box-shadow: 0 0 0 4px rgba(169, 140, 255, 0.08);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+/* ================= FOCUS MODE (Dyslexia/ADHD) ================= */
+.text-display.focus-mode-active .sentence {
+  opacity: 0.25; /* Dim all sentences by default */
+  filter: blur(0.5px); /* Slight blur reduces cognitive distraction */
+}
+
+/* Brighten the active sentence, or whatever sentence the user hovers over */
+.text-display.focus-mode-active .sentence.active-sentence,
+.text-display.focus-mode-active .sentence:hover {
+  opacity: 1 !important;
+  filter: blur(0) !important;
+  transform: scale(1.02);
+  display: inline-block; /* Required for transform scale to work on text */
+  margin: 0 4px; /* Compensate for the scale so text doesn't overlap violently */
+}
+
+/* ================= CONTROL BAR ================= */
+.unified-toolbar {
+  position: relative; /* Anchor for the sliding panel */
+}
+
+.control-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  padding: 16px 20px;
+  border-top: 1px solid rgba(0,0,0,0.05); /* Separator from text area */
+  background: #FFFDF7;
+  z-index: 10;
+}
+
+/* ================= SLIDING TOOLS PANEL ================= */
+.tools-panel {
+  display: flex;
+  gap: 10px;
+  position: absolute;
+  bottom: 100%; /* Sits exactly above the control bar */
+  left: 0;
+  width: 100%;
+  padding: 16px 20px;
+  background: #ffffff;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
+  border-radius: 16px 16px 0 0;
+  box-sizing: border-box;
+  
+  /* Sliding Animation */
+  transform: translateY(10px);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.tools-panel.active {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.btn-primary {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, #a855f7 0%, #8b5cf6 100%);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--dyslexic-font);
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.3);
+}
+
+.btn-outline {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-strong);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--dyslexic-font);
+  font-weight: 500;
+  transition: background .2s ease, border-color .2s ease, transform .12s ease;
+}
+.btn-outline:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+  border-color: #DAD5FF;
+}
+
+.btn-outline.active-toggle {
+  background: #F2EDFF;
+  border-color: #DAD5FF;
+  color: #6d28d9;
+}
+
+/* ================= MODE OVERLAY (Full-Screen) ================= */
+.mode-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mode-overlay.show {
+  display: flex;
+  opacity: 1;
+}
+
+.mode-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.mode-overlay-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 40px 36px 32px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 28px;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255,255,255,0.3) inset;
+  transform: scale(0.9);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.mode-overlay.show .mode-overlay-content {
+  transform: scale(1);
+}
+
+.mode-overlay-title {
+  font-family: var(--dyslexic-font);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.mode-overlay-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 180px;
+  height: 120px;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  cursor: pointer;
+  color: #fff;
+  font-family: var(--dyslexic-font);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Shimmer overlay on hover */
+.mode-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: inherit;
+}
+
+.mode-card:hover::after {
+  opacity: 1;
+}
+
+.mode-card:hover {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+}
+
+.mode-card:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+/* Per-mode colors */
+.mode-card[data-mode="book"]  { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+.mode-card[data-mode="form"]  { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.mode-card[data-mode="study"] { background: linear-gradient(135deg, #10b981, #059669); }
+.mode-card[data-mode="write"] { background: linear-gradient(135deg, #f59e0b, #d97706); }
+
+/* Hover glow per mode */
+.mode-card[data-mode="book"]:hover  { box-shadow: 0 8px 28px rgba(139, 92, 246, 0.45); }
+.mode-card[data-mode="form"]:hover  { box-shadow: 0 8px 28px rgba(59, 130, 246, 0.45); }
+.mode-card[data-mode="study"]:hover { box-shadow: 0 8px 28px rgba(16, 185, 129, 0.45); }
+.mode-card[data-mode="write"]:hover { box-shadow: 0 8px 28px rgba(245, 158, 11, 0.45); }
+
+.mode-card-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.mode-card-label {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.mode-card-desc {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.mode-overlay-close {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 20px;
+  font-family: var(--dyslexic-font);
+  font-size: 13px;
+  color: var(--text-strong);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mode-overlay-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ===== Snapshot thumbnail ===== */
+#snapshot-thumb {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 230px;
+  height: 170px;
+  overflow: hidden;
+  display: none;
+  z-index: 100;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(120deg, var(--g1), var(--g2)) border-box;
+  box-shadow: var(--shadow-1);
+}
+#snapshot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.modal.show {
+  display: flex;
+  opacity: 1;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  width: 380px;
+  text-align: center;
+  transform: scale(0.9);
+  transition: transform 0.3s ease;
+}
+
+.modal.show .modal-content {
+  transform: scale(1);
+}
+
+
+.inline-error {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  display: none;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  animation: fadeIn 0.2s ease;
+}
+
+.camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px 16px; /* Added breathing room as per user request */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.camera-controls .controls-left,
+.camera-controls .controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.camera-controls .btn {
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+
+
+/* ================= SMART ANALYSIS (Feature A) ================= */
+
+/* Difficult Word with Tooltip */
+.difficult-word {
+  position: relative;
+  text-decoration: underline;
+  text-decoration-color: #A98CFF;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
+  cursor: help;
+  color: #5b21b6;
+  font-weight: 600;
+  transition: background 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.difficult-word:hover {
+  background: rgba(169, 140, 255, 0.25);
+  border-radius: 4px;
+}
+
+/* Tooltip */
+.difficult-word {
+  cursor: help;
+}
+.tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: fixed; /* Must be fixed since we use getBoundingClientRect values */
+  margin-top: 8px; /* Adds space for the arrow */
+  background: #1f2933;
+  color: #fff;
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal; /* Allow wrapping */
+  width: max-content;
+  max-width: 280px; /* Force wrap if too long */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: all 0.2s ease;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.tooltip::after {
+  content: "";
+  position: absolute;
+  bottom: 100%; /* Arrow points up from the top edge */
+  left: var(--arrow-left, 50%); 
+  margin-left: var(--arrow-margin, -6px);
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent transparent #1f2933 transparent;
+}
+
+.difficult-word:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* View Toggles */
+.active-toggle {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF) !important;
+  border-color: #DAD5FF !important;
+  font-weight: bold;
+}
+
+/* Selection Popup */
+.selection-popup {
+  position: fixed;
+  display: none;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  padding: 4px;
+  z-index: 9999;
+  transform: translate(-50%, -10px);
+  animation: fadeInUp 0.2s ease forwards;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translate(-50%, 0); }
+  to { opacity: 1; transform: translate(-50%, -10px); }
+}
+
+.selection-popup button {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: var(--dyslexic-font);
+  font-weight: 500;
+  color: var(--text-strong);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.selection-popup button:hover {
+  background: linear-gradient(120deg, #F2EDFF, #ECF4FF);
+  color: #5b21b6;
+}
+
+/* ================= STATUS INDICATOR ================= */
+#status-indicator {
+  position: fixed;
+  top: 15px;
+  right: 15px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+#status-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ccc;
+}
+.status-online { color: #166534; }
+.status-online::before { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.status-offline { color: #991b1b; }
+.status-offline::before { background: #ef4444; }
+.status-reconnecting { color: #92400e; }
+.status-reconnecting::before { background: #f59e0b; animation: lexi-blink 1s infinite; }
+@keyframes lexi-blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* ================= READING RULER (SCREEN CURTAIN) ================= */
+#reading-ruler {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background: transparent;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); 
+  border-top: 2px solid rgba(169, 140, 255, 0.8);
+  border-bottom: 2px solid rgba(169, 140, 255, 0.8);
+  pointer-events: none;
+  z-index: 50;
+  display: none; 
+}
+
+#reading-ruler.active {
+  display: block;
+}
+
+/* ================= URL INPUT ================= */
+.url-field:focus {
+  outline: none;
+  border-color: #A98CFF !important;
+  box-shadow: 0 0 0 2px rgba(169, 140, 255, 0.2);
+}
+.url-field {
+  transition: all 0.2s ease;
+  background: white;
+}
+
+/* ================= COLOR SWITCHER ================= */
+.color-switcher {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto; /* Push to the right */
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.color-dot:hover {
+  transform: scale(1.15);
+}
+
+.color-dot.active {
+  border-color: #A98CFF;
+  box-shadow: 0 0 0 2px rgba(169, 140, 255, 0.3);
+}
+
+/* ================= PHASE 3 ADDITIONS ================= */
+
+/* Mode Badge */
+.mode-badge {
+  position: fixed;
+  top: 15px;
+  right: 150px; /* Offset from status indicator */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  background: #A98CFF;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.mode-badge.mode-book { background: #8b5cf6; } 
+.mode-badge.mode-form { background: #3b82f6; } 
+.mode-badge.mode-study { background: #10b981; } 
+.mode-badge.mode-write { background: #f59e0b; } 
+
+/* Modal Actions */
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.modal-actions .btn-outline {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Speed Indicator */
+.speed-indicator {
+  font-size: 12px;
+  font-weight: bold;
+  color: #6d28d9;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+/* Dictation UI */
+.dictation-area {
+  margin-top: 20px;
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: var(--shadow-2);
+  border: 1px solid var(--border);
+}
+
+.dictation-text {
+  font-family: Arial, sans-serif;
+  font-size: 22px;
+  line-height: 2.0;
+  color: #1a1a1a;
+  min-height: 120px;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+}
+
+.dictation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* Mobile Responsiveness */
+
+/* ================= WRITE MODE (Enhanced) ================= */
+.write-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 10px;
+  margin-top: -10px;
+  animation: fadeIn 0.3s ease;
+}
+
+.write-header h3 {
+  margin: 0 0 4px 0;
+  color: #6d28d9;
+}
+
+.write-header p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-subtle);
+}
+
+.write-controls-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -4px;
+}
+
+.undo-redo-group {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  background: #f8fafc;
+  border-color: var(--g1);
+  transform: translateY(-1px);
+}
+
+.write-input-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#write-textarea {
+  position: relative;
+  z-index: 2;
+  background: transparent !important;
+  width: 100%;
+  min-height: 120px;
+  padding: 16px;
+  font-family: var(--dyslexic-font);
+  font-size: 20px;
+  line-height: 1.6;
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  resize: vertical;
+  transition: border-color 0.2s;
+  letter-spacing: 0.05em;
+  color: #334155;
+  caret-color: var(--g1);
+}
+
+.highlight-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  font-family: var(--dyslexic-font);
+  font-size: 20px;
+  line-height: 1.6;
+  letter-spacing: 0.05em;
+  color: transparent;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  z-index: 3;
+  border: 2px solid transparent;
+  overflow: hidden;
+}
+
+.highlight-overlay * {
+  pointer-events: auto;
+}
+
+.error-hint {
+  text-decoration: underline wavy #ef4444;
+  text-decoration-thickness: 2px;
+  padding-bottom: 2px;
+  cursor: help;
+  display: inline;
+  position: relative;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.prediction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -5px;
+  min-height: 38px;
+}
+
+.prediction-item {
+  padding: 6px 14px;
+  background: #f3f4f6;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.prediction-item:hover {
+  background: #e5e7eb;
+}
+
+.write-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: -5px;
+}
+
+/* Premium Suggestion Tooltip */
+.suggestion-tooltip {
+  position: fixed;
+  z-index: 10000;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 2px solid var(--g1);
+  padding: 14px 18px;
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  min-width: 180px;
+  max-width: 280px;
+  pointer-events: auto;
+  font-family: var(--dyslexic-font);
+  animation: tooltipAppear 0.3s ease-out;
+}
+
+@keyframes tooltipAppear {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.suggestion-tooltip .label {
+  display: block;
+  font-size: 12px;
+  color: #7c3aed;
+  font-weight: bold;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.suggestion-tooltip .value {
+  display: block;
+  font-size: 18px;
+  color: #4c1d95;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.suggestion-tooltip .value:hover {
+  text-decoration: underline;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .main-layout {
+    flex-direction: column;
+    height: auto;
+    overflow-y: auto;
+    padding: 12px;
+  }
+  
+  .left-panel, .right-panel {
+    width: 100%;
+    max-width: 100%;
+    resize: none;
+    height: auto;
+    padding: 0;
+  }
+  
+  .left-panel { margin-bottom: 16px; }
+
+  #status-indicator, .mode-badge {
+    position: static;
+    display: inline-flex;
+    margin: 5px;
+  }
+  
+  #app {
+     padding-top: 60px; /* Space for sticky/static badges */
+  }
+
+  .camera-controls {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+  
+  .url-control-group {
+    width: 100%;
+    margin: 8px 0 !important;
+  }
+}
+
+/* ================= SESSION RECALL BADGE (#24) ================= */
+.recall-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, var(--brand-teal), #0ea5e9);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  margin-left: 6px;
+  animation: fadeIn 0.3s ease;
+}
+
+/* ================= PAUSE INDICATOR (#25) ================= */
+.pause-indicator {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 9000;
+  backdrop-filter: blur(8px);
+}
+
+.pause-indicator.active { display: flex; }
+
+.pause-dot {
+  width: 10px;
+  height: 10px;
+  background: #f59e0b;
+  border-radius: 50%;
+  animation: pausePulse 1s infinite;
+}
+
+@keyframes pausePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ================= PROGRESS SUMMARY CARD (#26) ================= */
+.summary-card {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: linear-gradient(135deg, var(--brand-purple), #a855f7);
+  color: white;
+  padding: 24px 28px;
+  border-radius: 20px;
+  max-width: 320px;
+  z-index: 9500;
+  box-shadow: 0 12px 40px rgba(123, 45, 139, 0.35);
+  animation: slideInCard 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: none;
+}
+
+.summary-card.active { display: block; }
+
+.summary-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.summary-card p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.summary-card button {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--dyslexic-font);
+}
+
+.summary-card button:hover { background: rgba(255,255,255,0.3); }
+
+@keyframes slideInCard {
+  from { opacity: 0; transform: translateY(30px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ================= DARK THEME TOGGLE (#27) ================= */
+.theme-toggle-btn {
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  box-shadow: var(--shadow-1);
+  transition: all 0.3s ease;
+}
+
+.theme-toggle-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+</style>
+</head>
+
+<body>
+  <!-- Dark Theme Toggle (#27) -->
+  <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark mode">🌙</button>
+
+  <!-- Privacy Modal -->
+  <div id="privacy-modal" class="modal">
+    <div class="modal-content">
+      <h2>Privacy Notice</h2>
+      <p>
+        LexiLens processes your voice and camera feed in real time to help you read.
+        Your session data is automatically deleted within 24 hours and never shared with third parties.
+      </p>
+      <div class="modal-actions">
+        <a href="https://example.com/privacy" target="_blank" class="btn-outline">Learn More</a>
+        <button id="consent-btn" class="btn-primary">I Understand</button>
+      </div>
+    </div>
+  </div>
+  <div id="app" class="theme-nano">
+    <div id="status-indicator" class="status-offline">Connecting...</div>
+    <div id="mode-badge" class="mode-badge">General Mode</div>
+    <div class="main-layout">
+      <!-- Left Panel (Resizable) -->
+      <div class="left-panel">
+        <!-- Unified Left Card -->
+        <div class="card unified-card left-unified-card">
+          
+          <!-- Top: Camera Feed -->
+          <div class="camera-feed unified-camera">
+            <div id="inline-error" class="inline-error"></div>
+            <div id="snapshot-thumb" class="snapshot-thumb">
+              <img id="snapshot-img" src="" alt="Snapshot Thumbnail">
+            </div>
+            <video id="video" autoplay muted></video>
+          </div>
+
+          <!-- Middle: Chat Log -->
+          <div class="chat-history unified-chat">
+            <div class="chat-scroll" id="chat-scroll">
+              <div class="chat-message ai">Lexi: Hello! I am ready to read for you.</div>
+            </div>
+          </div>
+
+          <!-- Bottom: Camera Controls -->
+          <div class="camera-controls">
+            <div class="controls-left">
+              <div class="mic-vis-group">
+                <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
+                <div id="voice-visualiser" class="voice-visualiser">
+                  <span class="vis-ring"></span>
+                  <span class="vis-ring"></span>
+                  <span class="vis-ring"></span>
+                </div>
+              </div>
+              <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
+              <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
+              <button id="screen-reader-btn" class="btn" aria-label="Read Screen">🖥 Read Screen</button>
+              <input type="file" id="file-input" style="display: none;">
+            </div>
+            
+            <!-- URL Input Integration -->
+            <div class="url-control-group" style="flex: 1; display: flex; gap: 8px; margin: 0 12px;">
+              <input type="url" id="url-input" placeholder="Paste article link here..." 
+                     style="flex: 1; padding: 8px 12px; border-radius: 20px; border: 1px solid var(--border); font-family: inherit;">
+              <button id="url-submit-btn" class="btn-primary" style="padding: 8px 16px; border-radius: 20px; white-space: nowrap;">Load Link</button>
+            </div>
+
+            <div class="controls-right">
+              <button id="mode-toggle" class="btn">⚙ Mode</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right Panel -->
+      <div class="right-panel">
+        <!-- Unified Right Card -->
+        <div class="card unified-card right-unified-card">
+          
+          <!-- Text Display Area -->
+          <div class="text-display unified-text">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div class="panel-title" style="margin-bottom: 0;">Text Display Area</div>
+              <div class="view-toggle" style="display: none;" id="view-toggle-container">
+                <button id="view-original-btn" class="btn-outline active-toggle" style="padding: 4px 8px; font-size: 12px;">📄 Original Text</button>
+                <button id="view-analyzed-btn" class="btn-outline" style="padding: 4px 8px; font-size: 12px;">📝 Summary Notes</button>
+              </div>
+            </div>
+            <div id="reading-text" style="position: relative;">
+              <p>The recognized text will appear here.</p>
+            </div>
+
+            <!-- Dictation Mode UI -->
+            <div id="dictation-area" class="dictation-area hidden">
+              <div id="dictation-text-display" class="dictation-text">Waiting for dictation...</div>
+              <div class="dictation-actions">
+                <button id="dictation-clear-btn" class="btn-outline">🗑 Clear</button>
+                <button id="dictation-copy-btn" class="btn-primary">📋 That's good</button>
+                <button id="dictation-change-btn" class="btn-outline">🔄 Change last sentence</button>
+                <button id="dictation-formal-btn" class="btn-outline">🎩 Make it more formal</button>
+                <button id="dictation-stop-btn" class="btn-outline">⏹ Stop</button>
+              </div>
+            </div>
+            
+            <!-- Write Mode Panel -->
+            <div id="write-mode-panel" class="write-mode-panel" style="display: none;">
+              <div class="write-header">
+                <h3>Lexi Write</h3>
+                <p>Type here or use voice commands to write together.</p>
+              </div>
+              <div class="write-controls-top">
+                <div class="undo-redo-group">
+                  <button id="write-undo-btn" class="icon-btn" title="Undo">↩️</button>
+                  <button id="write-redo-btn" class="icon-btn" title="Redo">↪️</button>
+                </div>
+              </div>
+              <div class="write-input-area">
+                <textarea id="write-textarea" placeholder="Start writing something..."></textarea>
+                <div id="write-highlight-overlay" class="highlight-overlay"></div>
+              </div>
+
+              <!-- Prediction Bar (Lexi suggests next word) -->
+              <div id="prediction-bar" class="prediction-bar"></div>
+
+              <div class="write-actions">
+                <button id="write-stt-btn" class="btn mic-btn" title="Convert your voice to text">🎙 Speak</button>
+                <button id="write-ai-btn" class="btn btn-primary" title="Say 'Lexi, help me write...'">✨ AI Write</button>
+                <button id="write-readback-btn" class="btn" title="Listen to your text">🔊 Read Back</button>
+              </div>
+
+              <div id="ai-suggestions" class="ai-suggestions" style="display: none;">
+                <!-- AI Suggestions will appear here -->
+              </div>
+            </div>
+            
+            <!-- Selection Popup Button -->
+            <div id="selection-popup" class="selection-popup">
+              <button id="explain-selection-btn">🌟 Explain This</button>
+            </div>
+          </div>
+
+          <!-- Control Buttons -->
+          <div class="control-bar toolbar unified-toolbar">
+            <button id="explain-btn" class="btn-primary">Explain Simply</button>
+            <button id="reading-tools-btn" class="btn-outline">🛠 Reading Tools</button>
+            
+            <!-- Sliding Tools Panel -->
+            <div id="reading-tools-panel" class="tools-panel hidden">
+              <button id="focus-mode-toggle" class="btn-outline" title="Dim surrounding text">🎯 Focus Mode</button>
+              <button id="ruler-toggle" class="btn-outline" title="Toggle Reading Ruler">📏 Ruler</button>
+              <button id="bionic-toggle" class="btn-outline" title="Toggle Bionic Reading">📖 Bionic</button>
+              <button id="font-increase" class="btn-outline">A+</button>
+              <button id="font-decrease" class="btn-outline">A-</button>
+              
+              <div class="speed-control-wrapper" title="Voice Playback Speed">
+                <div id="speed-indicator" class="speed-indicator">▶ Normal</div>
+                <select id="voice-speed-select" class="btn-outline" style="padding: 9px 24px 9px 12px; appearance: none; cursor: pointer;">
+                  <option value="0.7">🐢 Slow (0.7x)</option>
+                  <option value="1.0" selected>▶ Normal (1.0x)</option>
+                  <option value="1.2">🐇 Fast (1.2x)</option>
+                  <option value="1.5">🚀 Extra Fast (1.5x)</option>
+                </select>
+              </div>
+
+              <div class="color-switcher" title="Background Color">
+                <button class="color-dot" data-color="#FFFDF7" style="background:#FFFDF7;" title="Cream"></button>
+                <button class="color-dot" data-color="#F0F7FF" style="background:#F0F7FF;" title="Light Blue"></button>
+                <button class="color-dot" data-color="#F0FFF4" style="background:#F0FFF4;" title="Light Green"></button>
+                <button class="color-dot" data-color="#FFF5F5" style="background:#FFF5F5;" title="Light Pink"></button>
+                <button class="color-dot" data-color="#FFFFF0" style="background:#FFFFF0;" title="Light Yellow"></button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode Overlay -->
+    <div id="mode-overlay" class="mode-overlay">
+      <div class="mode-overlay-backdrop"></div>
+      <div class="mode-overlay-content">
+        <h2 class="mode-overlay-title">Choose a Mode</h2>
+        <div class="mode-overlay-grid">
+          <button class="mode-card" data-mode="book">
+            <span class="mode-card-icon">📖</span>
+            <span class="mode-card-label">Book</span>
+            <span class="mode-card-desc">Read books & stories</span>
+          </button>
+          <button class="mode-card" data-mode="form">
+            <span class="mode-card-icon">📋</span>
+            <span class="mode-card-label">Form</span>
+            <span class="mode-card-desc">Fill in forms & letters</span>
+          </button>
+          <button class="mode-card" data-mode="study">
+            <span class="mode-card-icon">📚</span>
+            <span class="mode-card-label">Study</span>
+            <span class="mode-card-desc">Learn & revise topics</span>
+          </button>
+          <button class="mode-card" data-mode="write">
+            <span class="mode-card-icon">✍️</span>
+            <span class="mode-card-label">Write</span>
+            <span class="mode-card-desc">Write with Lexi's help</span>
+          </button>
+        </div>
+        <button id="mode-overlay-close" class="mode-overlay-close">✕ Close</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="reading-ruler"></div>
+
+  <!-- Pause Indicator (#25) -->
+  <div id="pause-indicator" class="pause-indicator">
+    <span class="pause-dot"></span>
+    <span>Pausing between sentences…</span>
+  </div>
+
+  <!-- Progress Summary Card (#26) -->
+  <div id="summary-card" class="summary-card">
+    <h3>🎉 Session Summary</h3>
+    <p id="summary-card-text">Great work today!</p>
+    <button id="summary-card-close">Got it!</button>
+  </div>
+
+  <script>
+// ================= CONFIG =================
+const HOST = location.hostname || "localhost";
+const IS_PROD = HOST.endsWith(".run.app") || HOST.endsWith(".web.app");
+const CONFIG = {
+  WS_URL: IS_PROD ? `wss://${HOST}/ws/session` : `ws://${HOST}:8000/ws/session`,
+  API_URL: IS_PROD ? `https://${HOST}` : `http://${HOST}:8000`
+};
+
+const ALLOWED_TYPES = ['application/pdf','image/png','image/jpeg','image/webp'];
+const MAX_SIZE = 10 * 1024 * 1024; // 10MB per spec
+
+// ================= FILE VALIDATION (#5/#13) =================
+function validateFile(file) {
+  if (!file) return "No file selected.";
+  if (!ALLOWED_TYPES.includes(file.type)) return `File type "${file.type}" is not allowed. Use PDF, PNG, JPEG, or WebP.`;
+  if (file.size > MAX_SIZE) return `File is too large (${(file.size/1024/1024).toFixed(1)}MB). Max is 10MB.`;
+  if (!/^[\w\-. ]+$/.test(file.name)) return "Filename contains invalid characters.";
+  return null; // valid
+}
+
+// ================= STATE =================
+let isRecording = false;
+let videoStream = null;
+let ws = null;
+let SESSION_TOKEN = null;
+
+let audioCtx = null;
+let scriptProcessor = null;
+let micStream = null;
+
+let playbackContext = null;
+let audioQueue = [];
+let isPlaying = false;
+
+// Feature B: Web Speech API STT
+let speechRecognizer = null;
+let currentSpeechBubble = null;
+let currentAiTooltip = null; // Renamed to avoid confusion
+let currentModelTranscriptBubble = null; // Model-side transcripts
+let lastAiSpeechTime = 0; 
+
+let mockWords = ["This","is","a","mock","text","for","highlighting","test"];
+
+// UI State
+let currentMode = null;
+let originalHTML = ""; 
+let pureOriginalHTML = ""; 
+let analyzedHTML = ""; 
+let rawText = ""; 
+let isLexiTalking = false; 
+let reconnectAttempts = 0;
+let currentView = "original"; 
+let isRulerActive = false; 
+let isBionicActive = false; 
+let audioPlaybackRate = 1.0; 
+let screenCaptureInterval = null; 
+
+// ================= INIT =================
+window.addEventListener("DOMContentLoaded", () => {
+  setupEvents();
+  initSpeechRecognition();
+  initDyslexiaFeatures();
+
+  if (!sessionStorage.getItem("privacy_consented")) {
+    document.getElementById("privacy-modal").classList.add("show");
+  } else {
+    updateStatus("offline", "Initializing...");
+    initSession();
+  }
+
+  renderTextWithHighlight(mockWords.join(" "), false);
+  setupDragAndDrop();
+});
+
+async function safeAudioContext() {
+  if (!playbackContext) {
+    playbackContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (playbackContext.state === "suspended") {
+    await playbackContext.resume();
+  }
+  return playbackContext;
+}
+
+function sendMessage(type, payload = {}) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      session_token: SESSION_TOKEN,
+      type: type,
+      ...payload
+    }));
+  } else {
+    console.warn("WS not ready, could not send:", type);
+  }
+}
+
+// ================= SESSION =================
+async function initSession() {
+  try {
+    // 1. Fetch official session token from backend
+    const resp = await fetch(`${CONFIG.API_URL}/api/session`, { method: "POST" });
+    const data = await resp.json();
+    SESSION_TOKEN = data.session_token;
+    
+    if (!SESSION_TOKEN) throw new Error("No session token received");
+    
+    console.log("Session token acquired:", SESSION_TOKEN.substring(0, 8));
+    
+    // 2. Init components
+    await initWebSocket();
+    await initCamera();
+  } catch (err) {
+    console.error("Session init failed:", err);
+    updateStatus("offline", "Connection Failed");
+  }
+}
+
+function updateStatus(type, text) {
+  const el = document.getElementById("status-indicator");
+  if (!el) return;
+  el.className = `status-${type}`;
+  el.textContent = text;
+}
+
+// ================= DYSLEXIA FEATURES =================
+function initDyslexiaFeatures() {
+  const rulerToggle = document.getElementById("ruler-toggle");
+  const ruler = document.getElementById("reading-ruler");
+  const textDisplay = document.querySelector(".text-display");
+  
+  if (rulerToggle && ruler) {
+    rulerToggle.addEventListener("click", () => {
+      isRulerActive = !isRulerActive;
+      ruler.classList.toggle("active", isRulerActive);
+      rulerToggle.classList.toggle("active-toggle", isRulerActive);
+      ruler.style.display = isRulerActive ? "block" : "none";
+    });
+    
+    document.addEventListener("mousemove", (e) => {
+      if (isRulerActive && ruler && textDisplay) {
+        const containerRect = textDisplay.getBoundingClientRect();
+        if (e.clientX >= containerRect.left && e.clientX <= containerRect.right &&
+            e.clientY >= containerRect.top && e.clientY <= containerRect.bottom) {
+          ruler.style.display = "block";
+          ruler.style.top = `${e.clientY - 25}px`;
+        } else {
+          ruler.style.display = "none";
+        }
+      }
+    });
+  }
+
+  const colorDots = document.querySelectorAll(".color-dot");
+  colorDots.forEach(dot => {
+    dot.addEventListener("click", (e) => {
+      const newColor = e.target.dataset.color;
+      document.documentElement.style.setProperty("--bg", newColor);
+      if (textDisplay) textDisplay.style.background = newColor;
+      colorDots.forEach(d => d.classList.remove("active"));
+      e.target.classList.add("active");
+    });
+  });
+
+  document.getElementById("reading-tools-btn")?.addEventListener("click", () => {
+    const panel = document.getElementById("reading-tools-panel");
+    panel.classList.toggle("hidden"); 
+    panel.classList.toggle("active");
+    document.getElementById("reading-tools-btn").classList.toggle("active-toggle");
+  });
+
+  document.getElementById("bionic-toggle")?.addEventListener("click", (e) => {
+    isBionicActive = !isBionicActive;
+    e.target.classList.toggle("active-toggle", isBionicActive);
+    if (currentView === "original" && rawText) {
+      document.querySelectorAll("#reading-text .word").forEach(span => {
+        const cleanText = span.textContent.trim();
+        if (!isBionicActive) span.innerHTML = cleanText + " ";
+        else if (cleanText.length > 1) {
+          const mid = Math.ceil(cleanText.length / 2);
+          span.innerHTML = `<b>${cleanText.substring(0, mid)}</b>${cleanText.substring(mid)} `;
+        }
+      });
+    }
+  });
+
+  document.getElementById("focus-mode-toggle")?.addEventListener("click", (e) => {
+    textDisplay.classList.toggle("focus-mode-active");
+    e.target.classList.toggle("active-toggle");
+  });
+
+  document.getElementById("font-increase")?.addEventListener("click", increaseFont);
+  document.getElementById("font-decrease")?.addEventListener("click", decreaseFont);
+
+  const speedSelect = document.getElementById("voice-speed-select");
+  if (speedSelect) {
+    speedSelect.addEventListener("change", (e) => {
+      audioPlaybackRate = parseFloat(e.target.value);
+      updateSpeedIndicator(audioPlaybackRate);
+    });
+  }
+}
+
+function increaseFont(){
+  const el = document.getElementById("reading-text");
+  const style = window.getComputedStyle(el);
+  const size = parseFloat(style.fontSize);
+  el.style.fontSize = (size + 2) + "px";
+}
+
+function decreaseFont(){
+  const el = document.getElementById("reading-text");
+  const style = window.getComputedStyle(el);
+  const size = parseFloat(style.fontSize);
+  if(size > 12) el.style.fontSize = (size - 2) + "px";
+}
+
+function updateSpeedIndicator(rate) {
+  const indicator = document.getElementById("speed-indicator");
+  if (!indicator) return;
+  if (rate < 1.0) indicator.textContent = "🐢 Slow (" + rate.toFixed(1) + "x)";
+  else if (rate > 1.0) indicator.textContent = "🐇 Fast (" + rate.toFixed(1) + "x)";
+  else indicator.textContent = "▶ Normal";
+}
+
+// ================= CAMERA =================
+async function initCamera(){
+  try{
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:"user", width:{ideal:1280}, height:{ideal:720} }
+    });
+    const videoEl = document.getElementById("video");
+    videoEl.srcObject = videoStream;
+    await videoEl.play();
+  }catch(err){
+    console.error("Camera error:", err);
+    showInlineError("Camera not accessible.");
+  }
+}
+
+async function takeSnapshot(){
+  const video = document.getElementById("video");
+  if(!videoStream){ showInlineError("Camera not ready"); return; }
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video,0,0);
+  const base64 = canvas.toDataURL("image/jpeg", 0.9);
+  document.getElementById("snapshot-img").src = base64;
+  document.getElementById("snapshot-thumb").style.display="block";
+  addChat("Scanning text from camera...","user");
+  try {
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+    const formData = new FormData();
+    formData.append("file", blob, "snapshot.jpg");
+    const res = await fetch(`${CONFIG.API_URL}/api/upload-image`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error("API " + res.status);
+    const data = await res.json();
+    if(data.full_text){
+      addChat(`Snapshot scanned: ${data.words.length} words.`,"ai");
+      renderTextWithHighlight(data.full_text, true); 
+    } else addChat("No text found.","ai");
+  } catch (err) {
+    console.error("OCR error:", err);
+    addChat("Error scanning snapshot. Please check connection.","ai");
+  }
+}
+
+async function toggleScreenReader() {
+  const btn = document.getElementById("screen-reader-btn");
+  if (screenCaptureInterval) {
+    clearInterval(screenCaptureInterval); screenCaptureInterval = null;
+    btn.classList.remove("recording"); btn.textContent = "🖥 Read Screen";
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    btn.classList.add("recording"); btn.textContent = "⏹ Stop Screen";
+    const video = document.createElement("video"); video.srcObject = stream; await video.play();
+    const canvas = document.createElement("canvas"); canvas.width = 1280; canvas.height = 720;
+    const ctx = canvas.getContext("2d");
+    screenCaptureInterval = setInterval(() => {
+      ctx.drawImage(video, 0, 0, 1280, 720);
+      sendMessage("screen_frame", { frame: canvas.toDataURL("image/jpeg", 0.6).split(",")[1] });
+    }, 2000);
+    stream.getVideoTracks()[0].onended = () => { if(screenCaptureInterval) toggleScreenReader(); };
+  } catch (err) { addChat("Screen reader failed to start.","ai"); }
+}
+
+// ================= MIC =================
+async function toggleMic(){
+  await safeAudioContext();
+  if(!isRecording){
+    isRecording = true;
+    document.getElementById("mic-btn")?.classList.add("recording");
+    document.getElementById("voice-visualiser")?.classList.add("active");
+    startMic();
+  } else {
+    isRecording = false;
+    document.getElementById("mic-btn")?.classList.remove("recording");
+    document.getElementById("voice-visualiser")?.classList.remove("active");
+    stopMic();
+  }
+}
+
+async function startMic(){
+  if(!ws || ws.readyState !== WebSocket.OPEN){ addChat("Connecting to backend...","ai"); return; }
+  try {
+    if(speechRecognizer) try { speechRecognizer.start(); } catch(e){}
+    micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:16000});
+    const source = audioCtx.createMediaStreamSource(micStream);
+    scriptProcessor = audioCtx.createScriptProcessor(4096,1,1);
+    source.connect(scriptProcessor);
+    scriptProcessor.connect(audioCtx.destination);
+    scriptProcessor.onaudioprocess = (e) => {
+      if(!isRecording) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const pcm16 = new Int16Array(input.length);
+      for(let i=0;i<input.length;i++) pcm16[i] = Math.max(-1,Math.min(1,input[i])) * 0x7fff;
+      if(ws.readyState === WebSocket.OPEN) ws.send(pcm16.buffer);
+    };
+    addChat("Mic is on. Say something!","user");
+  } catch(e) { console.error("Mic error:", e); addChat("Mic access failed.","ai"); }
+}
+
+function stopMic(){
+  if(scriptProcessor) scriptProcessor.disconnect();
+  if(audioCtx) audioCtx.close();
+  if(micStream) micStream.getTracks().forEach(t=>t.stop());
+  if(speechRecognizer) try { speechRecognizer.stop(); } catch(e){}
+  isLexiTalking = false; isPlaying = false; audioQueue = [];
+}
+
+// ================= FILE UPLOAD =================
+async function handleUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const err = validateFile(file);
+  if (err) { showInlineError(err); return; }
+  addChat(`Uploading: ${file.name}`,"user");
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/api/upload`, { method: "POST", body: formData });
+    const data = await res.json();
+    if(data.full_text) {
+      renderTextWithHighlight(data.full_text, true);
+      addChat("File loaded successfully.","ai");
+    }
+  } catch(err) {
+    addChat("File upload failed. Check connection.", "ai");
+  } finally {
+    document.getElementById("file-input").value = "";
+  }
+}  
+
+function setupDragAndDrop() {
+  const dropZone = document.getElementById("reading-text");
+  if (!dropZone) return;
+  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault(); dropZone.classList.remove("dragover");
+    if (e.dataTransfer.files.length) handleUpload({ target: { files: e.dataTransfer.files } });
+  });
+}
+
+// ================= CHAT & STT =================
+function addChat(text,sender){
+  const chatArea = document.getElementById("chat-scroll");
+  const div = document.createElement("div");
+  div.className = `chat-message ${sender}`;
+  div.textContent = text;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return div;
+}
+
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return;
+  speechRecognizer = new SpeechRecognition();
+  speechRecognizer.continuous = true; speechRecognizer.interimResults = true;
+  speechRecognizer.onresult = (event) => {
+    // SUPPRESS STT IF AI IS TALKING
+    if (isLexiTalking || isPlaying || (Date.now() - lastAiSpeechTime < 1000)) return;
+
+    let transcript = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      transcript += event.results[i][0].transcript;
+    }
+    if (transcript) {
+      if (!currentSpeechBubble) {
+        currentSpeechBubble = addChat(transcript, "user");
+        currentSpeechBubble.style.opacity = "0.7";
+      }
+      currentSpeechBubble.textContent = transcript;
+      if (event.results[event.results.length - 1].isFinal) {
+        currentSpeechBubble.style.opacity = "1";
+        currentSpeechBubble = null;
+      }
+    }
+  };
+}
+
+// ================= TEXT & ANALYSIS =================
+function renderTextWithHighlight(text, isRealContent = false){
+  rawText = text; const container = document.getElementById("reading-text");
+  container.innerHTML = ""; currentView = "original";
+  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+  sentences.forEach((sentence, sIdx) => {
+    const sSpan = document.createElement("span");
+    sSpan.className = "sentence"; sSpan.dataset.sentence = sIdx;
+    sentence.trim().split(/\s+/).forEach((w, wIdx) => {
+      const wSpan = document.createElement("span");
+      wSpan.className = "word"; wSpan.dataset.wordIndex = wIdx;
+      wSpan.textContent = w + " ";
+      sSpan.appendChild(wSpan);
+    });
+    container.appendChild(sSpan);
+  });
+  originalHTML = container.innerHTML;
+  pureOriginalHTML = container.innerHTML; 
+  if(isRealContent) {
+    const toggle = document.getElementById("view-toggle-container");
+    if(toggle) toggle.style.display = "flex";
+    
+    // Reset buttons
+    const originalBtn = document.getElementById("view-original-btn");
+    const notesBtn = document.getElementById("view-analyzed-btn");
+    if(originalBtn) originalBtn.classList.add("active-toggle");
+    if(notesBtn) {
+        notesBtn.classList.remove("active-toggle");
+        notesBtn.innerText = "⏳ Generating..."; 
+    }
+    
+    analyzeText(text);
+    generateNotes(text);
+    sendMessage("set_context", { text: text });
+  }
+}
+
+async function analyzeText(text) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/api/analyze-text`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.difficult_words) {
+      window.difficultDictMap = {};
+      data.difficult_words.forEach(i => { window.difficultDictMap[i.word.trim().toLowerCase()] = i.explanation; });
+      document.querySelectorAll(".word").forEach(span => {
+        const clean = span.textContent.trim().replace(/[.,!?;:]/g, "").toLowerCase();
+        if (window.difficultDictMap[clean]) span.classList.add("difficult-word");
+      });
+      // Update originalHTML to include highlights for tooltips, but keep pureOriginalHTML clean
+      originalHTML = document.getElementById("reading-text").innerHTML;
+    }
+  } catch(e) {}
+}
+
+document.addEventListener("mouseover", (e) => {
+  const target = e.target.closest(".difficult-word");
+  if (!target) return;
+  const key = target.textContent.trim().replace(/[.,!?;:]/g, "").toLowerCase();
+  const expl = window.difficultDictMap?.[key];
+  if (!expl) return;
+  if (!currentAiTooltip) {
+    currentAiTooltip = document.createElement("div");
+    currentAiTooltip.className = "tooltip";
+    document.body.appendChild(currentAiTooltip);
+  }
+  currentAiTooltip.textContent = expl;
+  currentAiTooltip.style.visibility = "visible"; currentAiTooltip.style.opacity = "1";
+  const rect = target.getBoundingClientRect();
+  currentAiTooltip.style.top = (rect.bottom + 10) + "px";
+  currentAiTooltip.style.left = (rect.left) + "px";
+});
+document.addEventListener("mouseout", (e) => {
+  if (!e.target.closest(".difficult-word") && currentAiTooltip) {
+    currentAiTooltip.style.opacity = "0"; currentAiTooltip.style.visibility = "hidden";
+  }
+});
+
+async function generateNotes(text) {
+  const btn = document.getElementById("view-analyzed-btn");
+  // The 'Generating' text is now set in renderTextWithHighlight for immediate feedback
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/api/analyze-notes`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.notes) {
+      // Check if this result is still for the current rawText
+      if (text !== rawText) return; 
+      analyzedHTML = `<h3>Summary</h3><ul>${data.notes.map(n=>`<li>${n}</li>`).join("")}</ul>`;
+      if (btn) btn.innerText = "📝 Summary Notes";
+    }
+  } catch(e) { if(btn) btn.innerText = "❌ Note Error"; }
+}
+
+// ================= WEBSOCKET =================
+async function initWebSocket(){
+  if(ws) ws.close();
+  ws = new WebSocket(CONFIG.WS_URL);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { updateStatus("online", "Lexi Connected"); sendMessage("init"); };
+  ws.onmessage = async(e) => {
+    if(typeof e.data === "string"){
+      const m = JSON.parse(e.data);
+      if(m.type === "ready") updateStatus("online", "Lexi Ready");
+      if(m.type === "highlight") {
+        document.querySelectorAll(".word").forEach(s=>s.classList.remove("active-word"));
+        const target = document.querySelector(`.word[data-word-index="${m.word_index}"]`);
+        if(target) { target.classList.add("active-word"); target.scrollIntoView({ behavior:"smooth", block:"center"}); }
+      }
+      if(m.type === "highlight_sentence") {
+        document.querySelectorAll(".sentence").forEach(s=>s.classList.remove("active-sentence"));
+        const target = document.querySelector(`.sentence[data-sentence="${m.sentence_index}"]`);
+        if(target) { target.classList.add("active-sentence"); target.scrollIntoView({ behavior:"smooth", block:"center"}); }
+      }
+      if(m.type === "transcript" || m.type === "explain_transcript" || m.type === "screen_narration") {
+        if(m.text) {
+            if (!currentModelTranscriptBubble) {
+              currentModelTranscriptBubble = addChat(m.text, "ai");
+            } else {
+              currentModelTranscriptBubble.textContent += " " + m.text;
+            }
+        }
+      }
+      if(m.type === "talking") { 
+        isLexiTalking = m.value; 
+        if(!m.value) { lastAiSpeechTime = Date.now(); currentModelTranscriptBubble = null; }
+      }
+      if(m.type === "mode_changed") updateModeBadge(m.mode);
+      if(m.type === "speed_change") {
+        audioPlaybackRate = m.speed;
+        const sel = document.getElementById("voice-speed-select");
+        if(sel) sel.value = m.speed.toFixed(1);
+        updateSpeedIndicator(m.speed);
+      }
+      if(m.type === "dictation_result") {
+        document.getElementById("dictation-area").classList.remove("hidden");
+        document.getElementById("dictation-text-display").textContent = m.cleaned || m.raw;
+      }
+      if(m.type === "push_to_write_area") {
+        const ta = document.getElementById("write-textarea");
+        if(ta) {
+          ta.value += (ta.value.endsWith(" ") || !ta.value ? "" : " ") + m.text;
+          syncOverlay();
+          saveState();
+        }
+      }
+
+      // ----- Sentence pause indicator (#21/#25) -----
+      if(m.type === "sentence_pause") {
+        const pi = document.getElementById("pause-indicator");
+        if(pi) {
+          pi.classList.add("active");
+          setTimeout(() => pi.classList.remove("active"), m.duration || 2000);
+        }
+      }
+
+      // ----- Session recall badge (#24) -----
+      if(m.type === "recall") {
+        const chat = document.getElementById("chat-box");
+        if(chat && m.text) {
+          const bubble = addChat(m.text, "ai");
+          if(bubble) {
+            const badge = document.createElement("span");
+            badge.className = "recall-badge";
+            badge.textContent = "\u23f0 From earlier";
+            bubble.appendChild(badge);
+          }
+        }
+      }
+
+      // ----- Progress summary card (#26) -----
+      if(m.type === "session_summary") {
+        const card = document.getElementById("summary-card");
+        const txt = document.getElementById("summary-card-text");
+        if(card && txt) {
+          txt.textContent = m.message || "Great work today!";
+          card.classList.add("active");
+        }
+      }
+    } else {
+      playAudioChunk(e.data);
+    }
+  };
+  ws.onclose = () => { updateStatus("offline", "Disconnected"); setTimeout(initSession, 3000); };
+}
+
+async function playAudioChunk(buf){
+  await safeAudioContext();
+  audioQueue.push(buf);
+  if(!isPlaying) drainQueue();
+}
+
+async function drainQueue(){
+  if(!audioQueue.length) { isPlaying = false; return; }
+  isPlaying = true;
+  try {
+    const ab = await playbackContext.decodeAudioData(audioQueue.shift());
+    const source = playbackContext.createBufferSource();
+    source.buffer = ab; source.playbackRate.value = audioPlaybackRate;
+    source.connect(playbackContext.destination);
+    source.onended = drainQueue;
+    source.start();
+  } catch(e) { isPlaying = false; drainQueue(); }
+}
+
+// ================= UI HELPERS =================
+function updateModeBadge(mode) {
+  const badge = document.getElementById("mode-badge"); if (!badge) return;
+  const labels = { "book": "Book Mode", "form": "Form Mode", "study": "Study Mode", "write": "Write Mode" };
+  badge.textContent = labels[mode] || "General Mode";
+  badge.className = "mode-badge mode-" + (mode || "general");
+  
+  // Toggle Visibility
+  const isWrite = (mode === "write");
+  document.getElementById("write-mode-panel").style.display = isWrite ? "flex" : "none";
+  document.getElementById("reading-text").style.display = isWrite ? "none" : "block";
+  document.getElementById("view-toggle-container").style.display = isWrite ? "none" : "flex";
+  
+  if (isWrite) initWriteMode();
+}
+
+function showInlineError(msg){
+  const el = document.getElementById("inline-error");
+  if(el) { el.textContent = msg; el.style.display="block"; setTimeout(()=>el.style.display="none",4000); }
+}
+
+function setupEvents(){
+  document.getElementById("mic-btn")?.addEventListener("click", toggleMic);
+  document.getElementById("snapshot-btn")?.addEventListener("click", takeSnapshot);
+  document.getElementById("upload-btn")?.addEventListener("click", () => document.getElementById("file-input").click());
+  document.getElementById("file-input")?.addEventListener("change", handleUpload);
+  document.getElementById("screen-reader-btn")?.addEventListener("click", toggleScreenReader);
+  document.getElementById("url-submit-btn")?.addEventListener("click", () => {
+    const val = document.getElementById("url-input").value;
+    if(val) fetch(`${CONFIG.API_URL}/api/fetch-url`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url:val})
+    }).then(r=>r.json()).then(d=>{ if(d.full_text) renderTextWithHighlight(d.full_text, true); });
+  });
+
+  document.getElementById("mode-toggle")?.addEventListener("click", () => {
+    const overlay = document.getElementById("mode-overlay");
+    if (overlay) overlay.classList.add("show");
+  });
+
+  document.querySelectorAll(".mode-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const mode = card.dataset.mode; if (!mode) return;
+      updateModeBadge(mode); sendMessage("mode", { mode });
+      document.getElementById("mode-overlay")?.classList.remove("show");
+    });
+  });
+
+  document.getElementById("mode-overlay-close")?.addEventListener("click", () => {
+    document.getElementById("mode-overlay")?.classList.remove("show");
+  });
+
+  document.querySelector(".mode-overlay-backdrop")?.addEventListener("click", () => {
+    document.getElementById("mode-overlay")?.classList.remove("show");
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.getElementById("mode-overlay")?.classList.remove("show");
+    }
+  });
+
+  document.getElementById("consent-btn")?.addEventListener("click", () => {
+    sessionStorage.setItem("privacy_consented", "true");
+    document.getElementById("privacy-modal").classList.remove("show");
+    initSession();
+  });
+
+  document.getElementById("explain-btn")?.addEventListener("click", (e) => {
+    if(!rawText) { showInlineError("No text to explain!"); return; }
+    addChat("Explaining text naturally...", "user");
+    sendMessage("explain", { text: rawText });
+    e.target.disabled = true; e.target.style.opacity = "0.5";
+    e.target.innerText = "⏳ Explaining...";
+    setTimeout(() => { 
+      e.target.disabled = false; e.target.style.opacity = "1"; 
+      e.target.innerText = "Explain Simply";
+    }, 15000);
+  });
+
+  document.getElementById("view-original-btn")?.addEventListener("click", (e) => {
+    document.getElementById("reading-text").innerHTML = pureOriginalHTML; currentView = "original";
+    document.getElementById("view-original-btn").classList.add("active-toggle");
+    document.getElementById("view-analyzed-btn").classList.remove("active-toggle");
+  });
+
+  document.getElementById("view-analyzed-btn")?.addEventListener("click", (e) => {
+    if(analyzedHTML) { 
+      document.getElementById("reading-text").innerHTML = analyzedHTML; currentView = "notes"; 
+      document.getElementById("view-analyzed-btn").classList.add("active-toggle");
+      document.getElementById("view-original-btn").classList.remove("active-toggle");
+    } else {
+      showInlineError("Notes still generating...");
+    }
+  });
+
+  document.getElementById("dictation-copy-btn")?.addEventListener("click", () => {
+    const t = document.getElementById("dictation-text-display").textContent;
+    if(t) { navigator.clipboard.writeText(t); sendMessage("dictation_accept", { text: t }); }
+  });
+
+  // ----- Dictation revision buttons (#18) -----
+  document.getElementById("dictation-change-btn")?.addEventListener("click", () => {
+    const t = document.getElementById("dictation-text-display").textContent;
+    if (t) sendMessage("write_command", { command: "Change the last sentence", current_text: t });
+  });
+  document.getElementById("dictation-formal-btn")?.addEventListener("click", () => {
+    const t = document.getElementById("dictation-text-display").textContent;
+    if (t) sendMessage("write_command", { command: "Make it more formal", current_text: t });
+  });
+
+  // ----- Dark theme toggle (#27) -----
+  const themeBtn = document.getElementById("theme-toggle");
+  if (themeBtn) {
+    // Restore saved preference
+    if (localStorage.getItem("lexi-dark-mode") === "true") {
+      document.documentElement.classList.add("dark-mode");
+      themeBtn.textContent = "☀️";
+    }
+    themeBtn.addEventListener("click", () => {
+      const isDark = document.documentElement.classList.toggle("dark-mode");
+      themeBtn.textContent = isDark ? "☀️" : "🌙";
+      localStorage.setItem("lexi-dark-mode", isDark);
+    });
+  }
+
+  // ----- Summary card close (#26) -----
+  document.getElementById("summary-card-close")?.addEventListener("click", () => {
+    document.getElementById("summary-card")?.classList.remove("active");
+  });
+}
+
+// ================= WRITE MODE LOGIC =================
+let writeHistory = [];
+let writeRedoStack = [];
+let suggestionTooltip = null;
+let isWriteMicOn = false;
+let writeSpeechRecognizer = null;
+
+function initWriteMode() {
+    const textarea = document.getElementById("write-textarea");
+    if (!textarea || textarea._initialized) return;
+    textarea._initialized = true;
+
+    textarea.addEventListener("input", () => {
+        syncOverlay();
+        saveState();
+        debouncedSuggest();
+    });
+    textarea.addEventListener("scroll", syncOverlay);
+
+    document.getElementById("write-undo-btn")?.addEventListener("click", undoWrite);
+    document.getElementById("write-redo-btn")?.addEventListener("click", redoWrite);
+    document.getElementById("write-readback-btn")?.addEventListener("click", () => speakText(textarea.value));
+    
+    // Voice buttons
+    document.getElementById("write-stt-btn")?.addEventListener("click", () => startWriteMic(true));
+    document.getElementById("write-ai-btn")?.addEventListener("click", () => startWriteMic(false));
+
+    // Suggestion interactions
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (overlay) {
+        overlay.onmouseenter = () => {
+            if (overlay.querySelectorAll(".error-hint").length > 0) {
+                initHoverSuggestions();
+            }
+        };
+    }
+}
+
+const debouncedSuggest = debounce(() => {
+    const text = document.getElementById("write-textarea").value;
+    if (text.length > 5) fetchSuggestions(text);
+}, 2000);
+
+async function fetchSuggestions(text) {
+    try {
+        const res = await fetch(`${CONFIG.API_URL}/api/write-suggest`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (data.suggestions) {
+            highlightErrors(data.suggestions);
+        }
+    } catch(e) { console.error("Suggestion fetch failed:", e); }
+}
+
+function highlightErrors(suggestions) {
+    let html = document.getElementById("write-textarea").value;
+    suggestions.forEach(s => {
+        // Expected format: "Change 'word' to 'fix'"
+        const match = s.match(/Change '(.*?)' to '(.*?)'/i);
+        if (match) {
+            const original = match[1];
+            const fix = match[2];
+            const regex = new RegExp(`\\b${original}\\b`, 'gi');
+            html = html.replace(regex, `<span class="error-hint" data-correction="${fix}">${original}</span>`);
+        }
+    });
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (overlay) {
+        overlay.innerHTML = html + "\u200b";
+        initHoverSuggestions();
+    }
+}
+
+function syncOverlay() {
+    const textarea = document.getElementById("write-textarea");
+    const overlay = document.getElementById("write-highlight-overlay");
+    if (textarea && overlay) {
+        overlay.textContent = textarea.value + "\u200b";
+        overlay.scrollTop = textarea.scrollTop;
+    }
+}
+
+function saveState() {
+    const val = document.getElementById("write-textarea").value;
+    if (!writeHistory.length || writeHistory[writeHistory.length-1] !== val) {
+        writeHistory.push(val);
+        if (writeHistory.length > 50) writeHistory.shift();
+        writeRedoStack = [];
+    }
+}
+
+function undoWrite() {
+    if (writeHistory.length > 1) {
+        writeRedoStack.push(writeHistory.pop());
+        const ta = document.getElementById("write-textarea");
+        ta.value = writeHistory[writeHistory.length-1];
+        syncOverlay();
+    }
+}
+
+function redoWrite() {
+    if (writeRedoStack.length) {
+        const state = writeRedoStack.pop();
+        writeHistory.push(state);
+        document.getElementById("write-textarea").value = state;
+        syncOverlay();
+    }
+}
+
+function initHoverSuggestions() {
+    const hints = document.querySelectorAll(".error-hint");
+    if (!suggestionTooltip) {
+        suggestionTooltip = document.createElement("div");
+        suggestionTooltip.className = "suggestion-tooltip";
+        suggestionTooltip.style.display = "none";
+        document.body.appendChild(suggestionTooltip);
+        
+        suggestionTooltip.onmouseenter = () => {
+            clearTimeout(suggestionTooltip._hideTimeout);
+            suggestionTooltip.style.display = "block";
+        };
+        suggestionTooltip.onmouseleave = () => {
+            suggestionTooltip.style.display = "none";
+        };
+    }
+
+    hints.forEach(hint => {
+        hint.onmouseover = () => {
+            clearTimeout(suggestionTooltip._hideTimeout);
+            const corr = hint.getAttribute("data-correction") || "Correction Suggestion";
+            const original = hint.textContent;
+            
+            suggestionTooltip.innerHTML = `
+                <span class="label">Lexi Suggests:</span>
+                <span class="value" onclick="applyCorrection('${original.replace(/'/g, "\\'")}', '${corr.replace(/'/g, "\\")}')">${corr}</span>
+                <div style="font-size:10px; color:#999; margin-top:8px;">Click to apply</div>
+            `;
+            
+            suggestionTooltip.style.display = "block";
+            const rect = hint.getBoundingClientRect();
+            suggestionTooltip.style.left = Math.max(10, rect.left) + "px";
+            suggestionTooltip.style.top = (rect.top - 80) + "px";
+        };
+        
+        hint.onmouseout = () => {
+            suggestionTooltip._hideTimeout = setTimeout(() => {
+                suggestionTooltip.style.display = "none";
+            }, 200);
+        };
+    });
+}
+
+window.applyCorrection = function(original, replacement) {
+    const textarea = document.getElementById("write-textarea");
+    if (!textarea) return;
+    const oldText = textarea.value;
+    const regex = new RegExp(`\\b${original}\\b`, 'i');
+    textarea.value = oldText.replace(regex, replacement);
+    if (suggestionTooltip) suggestionTooltip.style.display = "none";
+    syncOverlay();
+    saveState();
+    addChat(`✅ Fixed "${original}" to "${replacement}"`, "ai");
+};
+
+function startWriteMic(isSTT = true) {
+    if (isWriteMicOn) { stopWriteMic(); return; }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    
+    isWriteMicOn = true;
+    const btn = document.getElementById(isSTT ? "write-stt-btn" : "write-ai-btn");
+    if (btn) btn.classList.add("recording");
+    
+    writeSpeechRecognizer = new SpeechRecognition();
+    writeSpeechRecognizer.continuous = true;
+    writeSpeechRecognizer.interimResults = true;
+    writeSpeechRecognizer.lang = 'en-US';
+
+    writeSpeechRecognizer.onresult = (event) => {
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) final += event.results[i][0].transcript;
+        }
+        if (final) {
+            if (isSTT) {
+                const ta = document.getElementById("write-textarea");
+                ta.value += (ta.value.endsWith(" ") || !ta.value ? "" : " ") + final;
+                syncOverlay();
+                saveState();
+            } else {
+                addChat(`🗣 Command: "${final}"`, "user");
+                sendMessage("write_command", { command: final, current_text: document.getElementById("write-textarea").value });
+                stopWriteMic();
+            }
+        }
+    };
+    writeSpeechRecognizer.onerror = () => stopWriteMic();
+    writeSpeechRecognizer.onend = () => { if (isWriteMicOn) writeSpeechRecognizer.start(); };
+    writeSpeechRecognizer.start();
+    addChat(isSTT ? "Dictating..." : "Say 'Lexi, help me write...'", "user");
+}
+
+function stopWriteMic() {
+    isWriteMicOn = false;
+    document.getElementById("write-stt-btn")?.classList.remove("recording");
+    document.getElementById("write-ai-btn")?.classList.remove("recording");
+    if (writeSpeechRecognizer) {
+        writeSpeechRecognizer.onend = null;
+        try { writeSpeechRecognizer.stop(); } catch{}
+        writeSpeechRecognizer = null;
+    }
+}
+
+// Utility: debounce
+function debounce(func, wait) {
+  let timeout;
+  return function(...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// Dummy for speakText if not defined
+function speakText(text) {
+  if (window.speechSynthesis) {
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = audioPlaybackRate || 1.0;
+    speechSynthesis.speak(utter);
+  }
+}
+
+function addChat(text, sender) {
+  const scroll = document.getElementById("chat-scroll");
+  const msg = document.createElement("div");
+  msg.className = `chat-message ${sender}`;
+  msg.textContent = text;
+  scroll.appendChild(msg);
+  scroll.scrollTop = scroll.scrollHeight;
+  return msg;
+}
+</script>
+</body>
+
+</html>

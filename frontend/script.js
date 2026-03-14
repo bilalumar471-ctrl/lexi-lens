@@ -1,12 +1,22 @@
 // ================= CONFIG =================
 const HOST = location.hostname || "localhost";
+const IS_PROD = HOST.endsWith(".run.app") || HOST.endsWith(".web.app");
 const CONFIG = {
-  WS_URL: `ws://${HOST}:8000/ws/session`,
-  API_URL: `http://${HOST}:8000`
+  WS_URL: IS_PROD ? `wss://${HOST}/ws/session` : `ws://${HOST}:8080/ws/session`,
+  API_URL: IS_PROD ? `https://${HOST}` : `http://${HOST}:8080`
 };
 
 const ALLOWED_TYPES = ['application/pdf','image/png','image/jpeg','image/webp'];
-const MAX_SIZE = 15 * 1024 * 1024; 
+const MAX_SIZE = 10 * 1024 * 1024; // 10MB per spec
+
+// ================= FILE VALIDATION (#5/#13) =================
+function validateFile(file) {
+  if (!file) return "No file selected.";
+  if (!ALLOWED_TYPES.includes(file.type)) return `File type "${file.type}" is not allowed. Use PDF, PNG, JPEG, or WebP.`;
+  if (file.size > MAX_SIZE) return `File is too large (${(file.size/1024/1024).toFixed(1)}MB). Max is 10MB.`;
+  if (!/^[\w\-. ]+$/.test(file.name)) return "Filename contains invalid characters.";
+  return null; // valid
+}
 
 // ================= STATE =================
 let isRecording = false;
@@ -281,10 +291,12 @@ async function toggleMic(){
   if(!isRecording){
     isRecording = true;
     document.getElementById("mic-btn")?.classList.add("recording");
+    document.getElementById("voice-visualiser")?.classList.add("active");
     startMic();
   } else {
     isRecording = false;
     document.getElementById("mic-btn")?.classList.remove("recording");
+    document.getElementById("voice-visualiser")?.classList.remove("active");
     stopMic();
   }
 }
@@ -322,6 +334,8 @@ function stopMic(){
 async function handleUpload(event){
   const file = event.target.files[0];
   if(!file) return;
+  const err = validateFile(file);
+  if (err) { showInlineError(err); return; }
   addChat(`Uploading: ${file.name}`,"user");
   const formData = new FormData();
   formData.append("file", file);
@@ -536,8 +550,40 @@ async function initWebSocket(){
           saveState();
         }
       }
+
+      // ----- Sentence pause indicator (#21/#25) -----
+      if(m.type === "sentence_pause") {
+        const pi = document.getElementById("pause-indicator");
+        if(pi) {
+          pi.classList.add("active");
+          setTimeout(() => pi.classList.remove("active"), m.duration || 2000);
+        }
+      }
+
+      // ----- Session recall badge (#24) -----
+      if(m.type === "recall") {
+        const chat = document.getElementById("chat-box");
+        if(chat && m.text) {
+          const bubble = addChat(m.text, "ai");
+          if(bubble) {
+            const badge = document.createElement("span");
+            badge.className = "recall-badge";
+            badge.textContent = "\u23f0 From earlier";
+            bubble.appendChild(badge);
+          }
+        }
+      }
+
+      // ----- Progress summary card (#26) -----
+      if(m.type === "session_summary") {
+        const card = document.getElementById("summary-card");
+        const txt = document.getElementById("summary-card-text");
+        if(card && txt) {
+          txt.textContent = m.message || "Great work today!";
+          card.classList.add("active");
+        }
+      }
     } else {
-      console.log("Audio chunk received, length:", e.data.byteLength);
       playAudioChunk(e.data);
     }
   };
@@ -545,7 +591,6 @@ async function initWebSocket(){
 }
 
 async function playAudioChunk(buf){
-  console.log("Playing audio chunk...");
   await safeAudioContext();
   audioQueue.push(buf);
   if(!isPlaying) drainQueue();
@@ -599,14 +644,30 @@ function setupEvents(){
   });
 
   document.getElementById("mode-toggle")?.addEventListener("click", () => {
-    const d = document.getElementById("mode-dropdown");
-    d.style.display = (d.style.display === "flex") ? "none" : "flex";
+    const overlay = document.getElementById("mode-overlay");
+    if (overlay) overlay.classList.add("show");
   });
 
-  document.getElementById("mode-dropdown")?.addEventListener("click", (e) => {
-    const mode = e.target.dataset.mode; if(!mode) return;
-    updateModeBadge(mode); sendMessage("mode", { mode });
-    document.getElementById("mode-dropdown").style.display = "none";
+  document.querySelectorAll(".mode-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const mode = card.dataset.mode; if (!mode) return;
+      updateModeBadge(mode); sendMessage("mode", { mode });
+      document.getElementById("mode-overlay")?.classList.remove("show");
+    });
+  });
+
+  document.getElementById("mode-overlay-close")?.addEventListener("click", () => {
+    document.getElementById("mode-overlay")?.classList.remove("show");
+  });
+
+  document.querySelector(".mode-overlay-backdrop")?.addEventListener("click", () => {
+    document.getElementById("mode-overlay")?.classList.remove("show");
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.getElementById("mode-overlay")?.classList.remove("show");
+    }
   });
 
   document.getElementById("consent-btn")?.addEventListener("click", () => {
@@ -646,6 +707,36 @@ function setupEvents(){
   document.getElementById("dictation-copy-btn")?.addEventListener("click", () => {
     const t = document.getElementById("dictation-text-display").textContent;
     if(t) { navigator.clipboard.writeText(t); sendMessage("dictation_accept", { text: t }); }
+  });
+
+  // ----- Dictation revision buttons (#18) -----
+  document.getElementById("dictation-change-btn")?.addEventListener("click", () => {
+    const t = document.getElementById("dictation-text-display").textContent;
+    if (t) sendMessage("write_command", { command: "Change the last sentence", current_text: t });
+  });
+  document.getElementById("dictation-formal-btn")?.addEventListener("click", () => {
+    const t = document.getElementById("dictation-text-display").textContent;
+    if (t) sendMessage("write_command", { command: "Make it more formal", current_text: t });
+  });
+
+  // ----- Dark theme toggle (#27) -----
+  const themeBtn = document.getElementById("theme-toggle");
+  if (themeBtn) {
+    // Restore saved preference
+    if (localStorage.getItem("lexi-dark-mode") === "true") {
+      document.documentElement.classList.add("dark-mode");
+      themeBtn.textContent = "☀️";
+    }
+    themeBtn.addEventListener("click", () => {
+      const isDark = document.documentElement.classList.toggle("dark-mode");
+      themeBtn.textContent = isDark ? "☀️" : "🌙";
+      localStorage.setItem("lexi-dark-mode", isDark);
+    });
+  }
+
+  // ----- Summary card close (#26) -----
+  document.getElementById("summary-card-close")?.addEventListener("click", () => {
+    document.getElementById("summary-card")?.classList.remove("active");
   });
 }
 

@@ -11,12 +11,9 @@ default-src 'self';
 img-src 'self' blob: data:;
 media-src 'self' blob: mediastream:;
 connect-src 'self'
-http://127.0.0.1:8000
-ws://127.0.0.1:8000
-http://localhost:8000
-ws://localhost:8000
-http://127.0.0.1:5500
-ws://127.0.0.1:5500;
+https://*.run.app wss://*.run.app
+http://127.0.0.1:8080 ws://127.0.0.1:8080
+http://localhost:8080 ws://localhost:8080;
 script-src 'self' 'unsafe-inline';
 style-src 'self' 'unsafe-inline';
 ">
@@ -25,6 +22,9 @@ style-src 'self' 'unsafe-inline';
 </head>
 
 <body>
+  <!-- Dark Theme Toggle (#27) -->
+  <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark mode">🌙</button>
+
   <!-- Privacy Modal -->
   <div id="privacy-modal" class="modal">
     <div class="modal-content">
@@ -67,7 +67,14 @@ style-src 'self' 'unsafe-inline';
           <!-- Bottom: Camera Controls -->
           <div class="camera-controls">
             <div class="controls-left">
-              <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
+              <div class="mic-vis-group">
+                <button id="mic-btn" class="btn mic-btn" aria-label="Mic">🎙 Mic</button>
+                <div id="voice-visualiser" class="voice-visualiser">
+                  <span class="vis-ring"></span>
+                  <span class="vis-ring"></span>
+                  <span class="vis-ring"></span>
+                </div>
+              </div>
               <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
               <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
               <button id="screen-reader-btn" class="btn" aria-label="Read Screen">🖥 Read Screen</button>
@@ -82,15 +89,7 @@ style-src 'self' 'unsafe-inline';
             </div>
 
             <div class="controls-right">
-              <div class="mode-wrapper">
-                <button id="mode-toggle" class="btn">⚙ Mode</button>
-                <div class="mode-dropdown" id="mode-dropdown">
-                  <div data-mode="book">Book</div>
-                  <div data-mode="form">Form</div>
-                  <div data-mode="study">Study</div>
-                  <div data-mode="write">Write</div>
-                </div>
-              </div>
+              <button id="mode-toggle" class="btn">⚙ Mode</button>
             </div>
           </div>
 
@@ -121,6 +120,8 @@ style-src 'self' 'unsafe-inline';
               <div class="dictation-actions">
                 <button id="dictation-clear-btn" class="btn-outline">🗑 Clear</button>
                 <button id="dictation-copy-btn" class="btn-primary">📋 That's good</button>
+                <button id="dictation-change-btn" class="btn-outline">🔄 Change last sentence</button>
+                <button id="dictation-formal-btn" class="btn-outline">🎩 Make it more formal</button>
                 <button id="dictation-stop-btn" class="btn-outline">⏹ Stop</button>
               </div>
             </div>
@@ -198,9 +199,55 @@ style-src 'self' 'unsafe-inline';
         </div>
       </div>
     </div>
+
+    <!-- Mode Overlay -->
+    <div id="mode-overlay" class="mode-overlay">
+      <div class="mode-overlay-backdrop"></div>
+      <div class="mode-overlay-content">
+        <h2 class="mode-overlay-title">Choose a Mode</h2>
+        <div class="mode-overlay-grid">
+          <button class="mode-card" data-mode="book">
+            <span class="mode-card-icon">📖</span>
+            <span class="mode-card-label">Book</span>
+            <span class="mode-card-desc">Read books & stories</span>
+          </button>
+          <button class="mode-card" data-mode="form">
+            <span class="mode-card-icon">📋</span>
+            <span class="mode-card-label">Form</span>
+            <span class="mode-card-desc">Fill in forms & letters</span>
+          </button>
+          <button class="mode-card" data-mode="study">
+            <span class="mode-card-icon">📚</span>
+            <span class="mode-card-label">Study</span>
+            <span class="mode-card-desc">Learn & revise topics</span>
+          </button>
+          <button class="mode-card" data-mode="write">
+            <span class="mode-card-icon">✍️</span>
+            <span class="mode-card-label">Write</span>
+            <span class="mode-card-desc">Write with Lexi's help</span>
+          </button>
+        </div>
+        <button id="mode-overlay-close" class="mode-overlay-close">✕ Close</button>
+      </div>
+    </div>
+
   </div>
 
   <div id="reading-ruler"></div>
+
+  <!-- Pause Indicator (#25) -->
+  <div id="pause-indicator" class="pause-indicator">
+    <span class="pause-dot"></span>
+    <span>Pausing between sentences…</span>
+  </div>
+
+  <!-- Progress Summary Card (#26) -->
+  <div id="summary-card" class="summary-card">
+    <h3>🎉 Session Summary</h3>
+    <p id="summary-card-text">Great work today!</p>
+    <button id="summary-card-close">Got it!</button>
+  </div>
+
   <script src="script.js"></script>
 </body>
 

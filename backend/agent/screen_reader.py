@@ -69,7 +69,7 @@ class ScreenReader:
                 ],
             )
             narration = (response.text or "").strip()
-            logger.info("Screen narration: %s", narration[:120])
+            logger.info("Screen narration generated, length=%d", len(narration))
             return narration
         except Exception as e:
             logger.error("Screen reader failed: %s", e)

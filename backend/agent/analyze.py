@@ -145,7 +145,7 @@ def analyze_notes(text: str) -> dict:
             contents=f"{SUMMARIZE_PROMPT}\n{text}",
         )
         if response.text:
-            logger.info(f"Notes response: {response.text[:300]}")
+            logger.info("Notes response received, length=%d", len(response.text))
             result = _safe_parse_json(response.text, "notes")
             if "notes" in result:
                 return result
@@ -181,7 +181,7 @@ def extract_key_points(text: str) -> dict:
             contents=f"{KEY_POINTS_PROMPT}\n{text}",
         )
         if response.text:
-            logger.info(f"Key points response: {response.text[:300]}")
+            logger.info("Key points response received, length=%d", len(response.text))
             result = _safe_parse_json(response.text, "key_points")
             if "key_points" in result:
                 return result

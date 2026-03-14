@@ -15,7 +15,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import datetime
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -29,6 +31,7 @@ from agent.analyze import analyze_text, explain_selection, analyze_notes, extrac
 from agent.dictation import DictationEngine
 from agent.screen_reader import ScreenReader
 from agent.reading_speed import ReadingSpeedController
+from agent.tone import detect_tone, get_tone_prompt
 from processing.documents import router as documents_router
 from security import (
     create_session,
@@ -71,20 +74,116 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # -- CORS --
-origins = settings.ALLOWED_ORIGINS
-if settings.ENV == "development":
-    origins = ["*"]  # More permissive in dev
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# -- Google Cloud Error Reporting (#10) --
+if settings.ENV != "development":
+    try:
+        from google.cloud import error_reporting as _er
+        _error_client = _er.Client(project=settings.PROJECT_ID)
+
+        @app.middleware("http")
+        async def _report_errors(request: Request, call_next):
+            try:
+                return await call_next(request)
+            except Exception:
+                _error_client.report_exception()
+                raise
+    except ImportError:
+        logger.warning("google-cloud-error-reporting not installed; skipping")
+
 # -- Document upload routes --
 app.include_router(documents_router)
+
+
+# ---------------------------------------------------------------------------
+# Firestore session helpers (#19)
+# ---------------------------------------------------------------------------
+
+async def _create_firestore_session(session_id: str) -> None:
+    """Create a session document in Firestore."""
+    try:
+        from google.cloud import firestore
+        db = firestore.AsyncClient(project=settings.PROJECT_ID)
+        await db.collection("sessions").document(session_id).set({
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "readings": [],
+            "status": "active",
+        })
+    except Exception as e:
+        logger.warning("Firestore session create failed: %s", e)
+
+
+async def _append_reading(session_id: str, text: str) -> None:
+    """Append a reading entry to the session document."""
+    try:
+        from google.cloud import firestore
+        db = firestore.AsyncClient(project=settings.PROJECT_ID)
+        await db.collection("sessions").document(session_id).update({
+            "readings": firestore.ArrayUnion([{
+                "text_preview": text[:200],
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "word_count": len(text.split()),
+            }]),
+        })
+    except Exception as e:
+        logger.warning("Firestore append reading failed: %s", e)
+
+
+async def _generate_progress_summary(session_id: str, websocket: Any) -> None:
+    """Generate and send an end-of-session progress summary (#23)."""
+    try:
+        from google.cloud import firestore
+        db = firestore.AsyncClient(project=settings.PROJECT_ID)
+        doc = await db.collection("sessions").document(session_id).get()
+        if not doc.exists:
+            return
+        data = doc.to_dict()
+        readings = data.get("readings", [])
+        total_words = sum(r.get("word_count", 0) for r in readings)
+        summary = {
+            "type": "session_summary",
+            "readings_count": len(readings),
+            "total_words": total_words,
+            "message": f"Great work! You read {len(readings)} text(s) and covered about {total_words} words today.",
+        }
+        await websocket.send_json(summary)
+        # Store summary in Firestore
+        await db.collection("sessions").document(session_id).update({
+            "summary": summary["message"],
+            "ended_at": firestore.SERVER_TIMESTAMP,
+            "status": "completed",
+        })
+    except Exception as e:
+        logger.warning("Progress summary failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Maintenance (#20)
+# ---------------------------------------------------------------------------
+
+@app.get("/maintenance/cleanup")
+async def maintenance_cleanup():
+    """Delete Firestore sessions older than 24 hours."""
+    try:
+        from google.cloud import firestore
+        db = firestore.AsyncClient(project=settings.PROJECT_ID)
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        query = db.collection("sessions").where("created_at", "<", cutoff)
+        deleted = 0
+        async for doc in query.stream():
+            await doc.reference.delete()
+            deleted += 1
+        return {"deleted": deleted, "cutoff": cutoff.isoformat()}
+    except Exception as e:
+        logger.error("Cleanup failed: %s", e)
+        return {"error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +193,7 @@ app.include_router(documents_router)
 @app.get("/health")
 async def health():
     """Liveness probe for Cloud Run / load-balancers."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": "1.0"}
 
 
 # ---------------------------------------------------------------------------
@@ -192,11 +291,19 @@ async def ws_session(websocket: WebSocket):
         logger.warning("WS auth failed: no session_token from %s", client_ip)
         return
 
+    if not validate_session(token):
+        await websocket.close(code=4001)
+        logger.warning("WS auth failed: invalid token from %s", client_ip)
+        return
+
     logger.info("WS session authenticated (token=%s…)", token[:8])
 
     # --- Step 2: main loop ---
     agent = LexiAgent()
     speed_ctrl = ReadingSpeedController()
+
+    # Create Firestore session (#19)
+    asyncio.create_task(_create_firestore_session(token[:36]))
 
     async def heartbeat():
         """Send periodic pings to keep the connection alive."""
@@ -285,6 +392,12 @@ async def ws_session(websocket: WebSocket):
                             context_text = msg.get("text", "")
                             logger.info("Setting context text (length: %d)", len(context_text))
                             await agent.set_context(context_text)
+                            # Append reading to Firestore (#19)
+                            asyncio.create_task(_append_reading(token[:36], context_text))
+                            # Tone detection (#22)
+                            tone = detect_tone(context_text)
+                            if tone != "neutral":
+                                await websocket.send_json({"type": "tone_detected", "tone": tone})
                             # Report auto-detected mode back to client
                             await websocket.send_json({
                                 "type": "mode_changed",
@@ -342,7 +455,7 @@ async def ws_session(websocket: WebSocket):
                         # ----- Reading Speed -----
                         elif msg_type == "speed_command":
                             cmd_text = msg.get("text", "")
-                            logger.info("Speed command: %s", cmd_text)
+                            logger.info("Speed command received")
                             speed_event = speed_ctrl.parse_speed_command(cmd_text)
                             if speed_event:
                                 await websocket.send_json(speed_event)
@@ -373,6 +486,11 @@ async def ws_session(websocket: WebSocket):
         logger.exception("Unexpected error in WebSocket session")
     finally:
         heartbeat_task.cancel()
+        # Send progress summary before cleanup (#23)
+        try:
+            await _generate_progress_summary(token[:36], websocket)
+        except Exception:
+            pass
         await agent.close()
         logger.info("WebSocket session cleaned up")
 

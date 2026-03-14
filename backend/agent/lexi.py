@@ -182,12 +182,12 @@ class LexiAgent:
                                 # Check if this is thinking/reasoning (skip) vs spoken output (forward)
                                 is_thought = getattr(part, 'thought', False)
                                 if is_thought:
-                                    logger.debug(f"Model thinking (skipped): {part.text[:80]}")
+                                    logger.debug("Model thinking (skipped), length=%d", len(part.text))
                                 else:
                                     # This is the actual spoken content — forward to chatlog
                                     cleaned = part.text.strip()
                                     if cleaned and websocket:
-                                        logger.info(f"AI spoken text: {cleaned[:100]}")
+                                        logger.info("AI spoken text, length=%d", len(cleaned))
                                         try:
                                             await websocket.send_json({
                                                 "type": "transcript",
@@ -238,7 +238,7 @@ class LexiAgent:
                 )
                 if response.text:
                     cleaned = response.text.strip()
-                    logger.info(f"Explain result: {cleaned[:100]}")
+                    logger.info("Explain result received, length=%d", len(cleaned))
                     return cleaned
             except asyncio.TimeoutError:
                 logger.warning(f"Explain attempt {attempt+1} timed out")
@@ -251,79 +251,147 @@ class LexiAgent:
     # Sentence-by-sentence "Explain Simply" (Plan C)
     # ------------------------------------------------------------------
 
+    async def _send_word_highlights(
+        self, websocket: Any, word_start_index: int, word_count: int,
+        speaking_duration: float = 0.0,
+    ) -> None:
+        """Send word-by-word highlight events at estimated intervals.
+
+        Args:
+            websocket: The client WebSocket connection.
+            word_start_index: The global word index of the first word.
+            word_count: Number of words to highlight.
+            speaking_duration: If >0, spread highlights across this duration.
+                                Otherwise default to ~3 words/second.
+        """
+        if word_count <= 0:
+            return
+
+        if speaking_duration > 0:
+            interval = speaking_duration / word_count
+        else:
+            interval = 0.33  # ~3 words per second
+
+        for i in range(word_count):
+            try:
+                await websocket.send_json({
+                    "type": "highlight",
+                    "word_index": word_start_index + i,
+                })
+            except Exception:
+                break
+            if i < word_count - 1:
+                await asyncio.sleep(interval)
+
     async def explain(self, text: str, websocket: Any) -> None:
         """
-        Explain text one sentence at a time.
+        Explain text one sentence at a time with word-level highlights.
 
         For each sentence:
-        1. Tell the frontend which sentence to highlight.
-        2. Get a simple explanation via standard API.
-        3. Send the explanation text to the chat log.
-        4. Optionally send to Live API for speech.
+        1. Send word-by-word highlight events for the original words.
+        2. Send sentence-level highlight.
+        3. Get a simple explanation via standard API.
+        4. Send the explanation text to the chat log.
+        5. Optionally send to Live API for speech.
         """
         sentences = split_sentences(text)
         if not sentences:
             return
 
-        logger.info(f"Explaining {len(sentences)} sentence(s)")
+        logger.info("Explaining %d sentence(s)", len(sentences))
+
+        # Pre-compute word offsets for each sentence
+        sentence_word_offsets: list[tuple[int, int]] = []
+        global_word_idx = 0
+        for sentence in sentences:
+            words_in_sentence = len(sentence.strip().split())
+            sentence_word_offsets.append((global_word_idx, words_in_sentence))
+            global_word_idx += words_in_sentence
 
         self._explaining = True
         try:
             for idx, sentence in enumerate(sentences):
-                # 1. Tell frontend to highlight
-                try:
-                    await websocket.send_json({"type": "highlight_sentence", "sentence_index": idx})
-                except: break
+                word_start, word_count = sentence_word_offsets[idx]
 
-                # 2. Get simple explanation
+                # 1. Word-by-word highlights for original words
+                await self._send_word_highlights(websocket, word_start, word_count)
+
+                # 2. Sentence-level highlight
+                try:
+                    await websocket.send_json({
+                        "type": "highlight_sentence",
+                        "sentence_index": idx,
+                    })
+                except Exception:
+                    break
+
+                # 3. Get simple explanation
                 clean_text = await self._get_clean_explanation(
-                    f"You are a patient reading tutor. Rewrite this sentence in very simple words a 10-year-old can understand. "
-                    f"Reply with ONLY the simplified sentence, nothing else.\n\nOriginal: \"{sentence}\""
+                    "You are a patient reading tutor. Rewrite this sentence "
+                    "in very simple words a 10-year-old can understand. "
+                    f'Reply with ONLY the simplified sentence, nothing else.\n\n'
+                    f'Original: "{sentence}"'
                 )
-                
+
                 if not clean_text:
-                    # Skip this sentence silently if we can't explain it
-                    logger.warning(f"Could not explain sentence {idx}, skipping")
+                    logger.warning("Could not explain sentence %d, skipping", idx)
                     continue
 
-                # 3. Send clean text to chat log
+                # 4. Send clean text to chat log
                 try:
                     await websocket.send_json({
                         "type": "explain_transcript",
                         "text": clean_text,
-                        "sentence_index": idx
+                        "sentence_index": idx,
                     })
-                except: pass
+                except Exception:
+                    pass
 
-                # 4. Optionally prompt Lexi Live to SPEAK the text
+                # 5. Optionally prompt Lexi Live to SPEAK the text
                 if self._session and not self._session_dead.is_set():
                     try:
                         self._turn_done.clear()
-                        await self._session.send(input=f"Speak this text exactly: {clean_text}", end_of_turn=True)
-                        
+                        await self._session.send(
+                            input=f"Speak this text exactly: {clean_text}",
+                            end_of_turn=True,
+                        )
+
                         done = asyncio.ensure_future(self._turn_done.wait())
                         dead = asyncio.ensure_future(self._session_dead.wait())
                         try:
                             await asyncio.wait(
                                 [done, dead],
                                 return_when=asyncio.FIRST_COMPLETED,
-                                timeout=10.0
+                                timeout=10.0,
                             )
                         finally:
                             done.cancel()
                             dead.cancel()
                     except Exception as e:
-                        logger.error(f"Error in Live speech sync for sentence {idx}: {e}")
-                
+                        logger.error(
+                            "Error in Live speech sync for sentence %d: %s", idx, e,
+                        )
+
+                # Emit sentence pause (#21)
+                if idx < len(sentences) - 1:
+                    try:
+                        await websocket.send_json({
+                            "type": "sentence_pause",
+                            "duration": 2000,
+                        })
+                    except Exception:
+                        pass
+
                 await asyncio.sleep(0.3)
         finally:
             self._explaining = False
 
-        # 5. Signal completion
+        # 6. Signal completion
         try:
             await websocket.send_json({"type": "explain_done"})
         except Exception:
             pass
+
 
     async def handle_write_command(self, command: str, current_text: str, websocket: Any) -> None:
         """Process an AI writing command (e.g. 'help me write a story')."""
