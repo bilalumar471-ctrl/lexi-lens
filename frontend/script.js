@@ -1,9 +1,10 @@
 // ================= CONFIG =================
 const HOST = location.hostname || "localhost";
 const IS_PROD = HOST.endsWith(".run.app") || HOST.endsWith(".web.app");
-const API_URL = 'https://lexi-lens-backend-2ps2eu7owq-uc.a.run.app';
-const WS_URL = 'wss://lexi-lens-backend-2ps2eu7owq-uc.a.run.app/ws/session';
-
+const CONFIG = {
+  WS_URL: 'wss://lexi-lens-backend-2ps2eu7owq-uc.a.run.app/ws/session',
+  API_URL: 'https://lexi-lens-backend-2ps2eu7owq-uc.a.run.app'
+};
 
 const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB per spec
