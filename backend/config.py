@@ -22,26 +22,9 @@ from pydantic_settings import BaseSettings
 # ---------------------------------------------------------------------------
 
 def _resolve_frontend_url() -> str:
-    """Resolve the frontend URL: env var first, Secret Manager fallback."""
-    url = os.getenv("FRONTEND_URL", "")
-    if url:
-        return url
-    # Production fallback: fetch from Secret Manager
-    try:
-        from google.cloud import secretmanager
-
-        project = os.getenv("PROJECT_ID", "lexi-lens")
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{project}/secrets/FRONTEND_URL/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        url = response.payload.data.decode("utf-8").strip()
-        logging.getLogger(__name__).info("FRONTEND_URL loaded from Secret Manager")
-        return url
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "FRONTEND_URL not set and Secret Manager unavailable"
-        )
-        return ""
+    """Resolve the frontend URL for CORS allowed origins."""
+    url = os.getenv("FRONTEND_URL", "https://bilalumar471-ctrl.github.io/lexi-lens/")
+    return url
 
 
 class Settings(BaseSettings):
