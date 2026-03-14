@@ -313,9 +313,6 @@ class LexiAgent:
             for idx, sentence in enumerate(sentences):
                 word_start, word_count = sentence_word_offsets[idx]
 
-                # 1. Word-by-word highlights for original words
-                await self._send_word_highlights(websocket, word_start, word_count)
-
                 # 2. Sentence-level highlight
                 try:
                     await websocket.send_json({
@@ -347,30 +344,43 @@ class LexiAgent:
                 except Exception:
                     pass
 
-                # 5. Optionally prompt Lexi Live to SPEAK the text
+                # 5. Prompt Lexi Live to SPEAK the text, and SIMULTANEOUSLY highlight words
+                tts_task = None
                 if self._session and not self._session_dead.is_set():
-                    try:
-                        self._turn_done.clear()
-                        await self._session.send(
-                            input=f"Speak this text exactly: {clean_text}",
-                            end_of_turn=True,
-                        )
-
-                        done = asyncio.ensure_future(self._turn_done.wait())
-                        dead = asyncio.ensure_future(self._session_dead.wait())
+                    async def speak_text() -> None:
                         try:
-                            await asyncio.wait(
-                                [done, dead],
-                                return_when=asyncio.FIRST_COMPLETED,
-                                timeout=10.0,
+                            self._turn_done.clear()
+                            await self._session.send(
+                                input=f"Speak this text exactly: {clean_text}",
+                                end_of_turn=True,
                             )
-                        finally:
-                            done.cancel()
-                            dead.cancel()
-                    except Exception as e:
-                        logger.error(
-                            "Error in Live speech sync for sentence %d: %s", idx, e,
-                        )
+                            done = asyncio.ensure_future(self._turn_done.wait())
+                            dead = asyncio.ensure_future(self._session_dead.wait())
+                            try:
+                                await asyncio.wait(
+                                    [done, dead],
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                    timeout=10.0 + (word_count * 0.5), # Scale timeout with length
+                                )
+                            finally:
+                                done.cancel()
+                                dead.cancel()
+                        except Exception as e:
+                            logger.error("Error in Live speech sync for sentence %d: %s", idx, e)
+                    
+                    tts_task = asyncio.create_task(speak_text())
+
+                # Concurrently run the word highlight loop while audio plays (or simulates playing).
+                # Estimate 150 WPM -> 2.5 words per second -> 0.4s per word
+                estimated_speaking_duration = word_count * 0.4
+                highlight_task = asyncio.create_task(
+                    self._send_word_highlights(websocket, word_start, word_count, estimated_speaking_duration)
+                )
+
+                if tts_task:
+                    await asyncio.gather(highlight_task, tts_task)
+                else:
+                    await highlight_task
 
                 # Emit sentence pause (#21)
                 if idx < len(sentences) - 1:

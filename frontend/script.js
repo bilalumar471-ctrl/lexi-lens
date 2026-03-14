@@ -590,6 +590,16 @@ async function initWebSocket(){
   ws.onclose = () => { updateStatus("offline", "Disconnected"); setTimeout(initSession, 3000); };
 }
 
+async function safeAudioContext() {
+  if (!playbackContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    playbackContext = new AudioContext({ sampleRate: 24000 });
+  }
+  if (playbackContext.state === 'suspended') {
+    await playbackContext.resume();
+  }
+}
+
 async function playAudioChunk(buf){
   await safeAudioContext();
   audioQueue.push(buf);
@@ -600,13 +610,27 @@ async function drainQueue(){
   if(!audioQueue.length) { isPlaying = false; return; }
   isPlaying = true;
   try {
-    const ab = await playbackContext.decodeAudioData(audioQueue.shift());
+    const buf = audioQueue.shift();
+    const int16Array = new Int16Array(buf);
+    const float32Array = new Float32Array(int16Array.length);
+    for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768.0;
+    }
+    const audioBuffer = playbackContext.createBuffer(1, float32Array.length, 24000);
+    audioBuffer.getChannelData(0).set(float32Array);
+    
     const source = playbackContext.createBufferSource();
-    source.buffer = ab; source.playbackRate.value = audioPlaybackRate;
+    source.buffer = audioBuffer; 
+    // audioPlaybackRate is set when speed changes. Default 1.0.
+    source.playbackRate.value = typeof audioPlaybackRate !== 'undefined' ? audioPlaybackRate : 1.0;
     source.connect(playbackContext.destination);
     source.onended = drainQueue;
     source.start();
-  } catch(e) { isPlaying = false; drainQueue(); }
+  } catch(e) { 
+    console.error("Audio playback error", e);
+    isPlaying = false; 
+    drainQueue(); 
+  }
 }
 
 // ================= UI HELPERS =================
@@ -731,6 +755,22 @@ function setupEvents(){
       const isDark = document.documentElement.classList.toggle("dark-mode");
       themeBtn.textContent = isDark ? "☀️" : "🌙";
       localStorage.setItem("lexi-dark-mode", isDark);
+    });
+  }
+
+  // ----- Font toggle -----
+  const fontBtn = document.getElementById("font-toggle");
+  if (fontBtn) {
+    if (localStorage.getItem("lexi-standard-font") === "true") {
+      document.documentElement.classList.add("standard-font");
+      fontBtn.textContent = "dys";
+      fontBtn.title = "Switch to OpenDyslexic";
+    }
+    fontBtn.addEventListener("click", () => {
+      const isStd = document.documentElement.classList.toggle("standard-font");
+      fontBtn.textContent = isStd ? "dys" : "A";
+      fontBtn.title = isStd ? "Switch to OpenDyslexic" : "Switch to Arial";
+      localStorage.setItem("lexi-standard-font", isStd);
     });
   }
 
