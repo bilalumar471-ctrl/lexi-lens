@@ -437,6 +437,10 @@ function renderTextWithHighlight(text, isRealContent = false) {
     const toggle = document.getElementById("view-toggle-container");
     if (toggle) toggle.style.display = "flex";
 
+    // Shrink the source controls into a top bar
+    const sourceControls = document.getElementById("source-controls-center");
+    if (sourceControls) sourceControls.classList.add("compact");
+
     // Reset buttons
     const originalBtn = document.getElementById("view-original-btn");
     const notesBtn = document.getElementById("view-analyzed-btn");

@@ -77,17 +77,6 @@ style-src 'self' 'unsafe-inline';
                 </div>
               </div>
               <button id="stop-lexi-btn" class="btn" aria-label="Stop Lexi">🛑 Stop</button>
-              <button id="snapshot-btn" class="btn" aria-label="Snapshot">📸 Snapshot</button>
-              <button id="upload-btn" class="btn" aria-label="Upload">📄 Upload</button>
-              <button id="screen-reader-btn" class="btn" aria-label="Read Screen">🖥 Read Screen</button>
-              <input type="file" id="file-input" style="display: none;">
-            </div>
-            
-            <!-- URL Input Integration -->
-            <div class="url-control-group" style="flex: 1; display: flex; gap: 8px; margin: 0 12px;">
-              <input type="url" id="url-input" placeholder="Paste article link here..." 
-                     style="flex: 1; padding: 8px 12px; border-radius: 20px; border: 1px solid var(--border); font-family: inherit;">
-              <button id="url-submit-btn" class="btn-primary" style="padding: 8px 16px; border-radius: 20px; white-space: nowrap;">Load Link</button>
             </div>
 
             <div class="controls-right">
@@ -112,8 +101,27 @@ style-src 'self' 'unsafe-inline';
                 <button id="view-analyzed-btn" class="btn-outline" style="padding: 4px 8px; font-size: 12px;">📝 Summary Notes</button>
               </div>
             </div>
+            
+            <!-- Permanent Input Methods Structure -->
+            <div id="source-controls-center" class="source-controls-center">
+              <h2>Choose what to read</h2>
+              <p>Capture a snapshot, upload a file, or paste a link to start.</p>
+              
+              <div class="source-buttons-row">
+                <button id="snapshot-btn" class="btn-primary" aria-label="Snapshot">📸 Camera Snapshot</button>
+                <button id="upload-btn" class="btn-outline" aria-label="Upload">📄 Upload Document</button>
+                <button id="screen-reader-btn" class="btn-outline" aria-label="Read Screen">🖥 Read Screen</button>
+                <input type="file" id="file-input" style="display: none;">
+              </div>
+              
+              <div class="url-control-group">
+                <input type="url" id="url-input" placeholder="Paste article link here...">
+                <button id="url-submit-btn" class="btn-primary url-submit">Go</button>
+              </div>
+            </div>
+
             <div id="reading-text" style="position: relative;">
-              <p>The recognized text will appear here.</p>
+              <p class="reading-placeholder"></p>
             </div>
 
             <!-- Dictation Mode UI -->
