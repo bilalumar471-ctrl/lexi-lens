@@ -267,7 +267,12 @@ async def ws_session(websocket: WebSocket):
       4. Binary frames are forwarded as PCM audio to the Gemini Live API.
     """
     # --- Rate-limit check (before accepting) ---
-    client_ip = websocket.client.host if websocket.client else "unknown"
+    forwarded_for = websocket.headers.get("x-forwarded-for")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0].strip()
+    else:
+        client_ip = websocket.client.host if websocket.client else "unknown"
+
     if not check_ws_rate_limit(client_ip):
         await websocket.close(code=4029)  # custom "too many requests"
         logger.warning("WS connection rejected (rate limit) for IP %s", client_ip)

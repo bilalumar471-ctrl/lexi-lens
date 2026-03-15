@@ -45,7 +45,7 @@ limiter = Limiter(key_func=get_remote_address)
 # Manual WS rate-limit store: {ip: [timestamp, ...]}
 _ws_connections: dict[str, list[float]] = defaultdict(list)
 
-WS_RATE_LIMIT = 10          # max connections per IP per hour
+WS_RATE_LIMIT = 100         # max connections per IP per hour
 WS_RATE_WINDOW = 3600       # per hour (seconds)
 
 
