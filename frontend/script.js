@@ -33,6 +33,7 @@ let audioQueue = [];
 let isPlaying = false;
 let nextAudioTime = 0;
 let scheduledSources = [];
+let ignoreAudioUntil = 0;
 
 // Feature B: Web Speech API STT
 let speechRecognizer = null;
@@ -613,10 +614,14 @@ async function safeAudioContext() {
 }
 
 async function playAudioChunk(buf) {
+  if (Date.now() < ignoreAudioUntil) return;
+  
   await safeAudioContext();
   audioQueue.push(buf);
   if (!isPlaying) {
-    nextAudioTime = playbackContext.currentTime;
+    if (!nextAudioTime || nextAudioTime < playbackContext.currentTime) {
+      nextAudioTime = playbackContext.currentTime;
+    }
     isPlaying = true;
     drainQueue();
   }
@@ -624,11 +629,12 @@ async function playAudioChunk(buf) {
 
 function stopLexiAudio() {
   audioQueue = [];
-  scheduledSources.forEach(s => {
-    try { s.stop(); } catch(e) {}
-  });
-  scheduledSources = [];
+  while (scheduledSources.length) {
+    try { scheduledSources.pop().stop(); } catch(e) {}
+  }
   isPlaying = false;
+  nextAudioTime = 0;
+  ignoreAudioUntil = Date.now() + 1000;
   sendMessage("stop_speaking", {});
 }
 
